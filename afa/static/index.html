@@ -98,6 +98,7 @@
   .ioc:last-child{border-bottom:none}
   .ioc .k{flex:0 0 72px;color:var(--ember);font-family:var(--mono);font-size:11px}
   .ioc .v{color:#dccfbc;word-break:break-word}
+  .hash{font-family:var(--mono);font-size:11px;color:#cdbfa9;word-break:break-all;line-height:1.5}
   ul.list{margin:0;padding-left:18px;color:#cdc1b0;font-size:12.5px;line-height:1.65}
 
   /* matrix */
@@ -189,7 +190,7 @@ const isExternal = r => { const h=remoteHost(r).trim(); return h && !PRIVATE.tes
 
 let CASE=null;
 const NAV_GROUPS=[
-  ["Analysis",[["overview","Root cause"],["timeline","Timeline"],["attack","ATT&CK matrix"],["ask","Ask the analyst"]]],
+  ["Analysis",[["overview","Root cause"],["timeline","Timeline"],["attack","ATT&CK matrix"],["custody","Chain of custody"],["ask","Ask the analyst"]]],
   ["Artifacts",[["processes","Processes"],["network","Network"],["persistence","Persistence"],["events","Events"],
     ["accounts","Accounts"],["programs","Programs"],["prefetch","Prefetch"],["shimcache","Shimcache"],
     ["filesystem","Files ($MFT)"],["browser","Browser"],["wmi","WMI"]]]
@@ -304,6 +305,30 @@ const RENDER={
   wmi(){ return table("WMI event-subscription persistence",CASE.artifacts.wmi,
     [["filter_name","Filter"],["consumer_name","Consumer"],["consumer_type","Type"],["command","Command / query"]],
     r=> `<span class="tag susp">persistence</span>`); },
+  custody(){
+    const m=CASE.manifest||{}, c=CASE.custody||{}, h=m.host||{};
+    const files=m.files||[];
+    const ok=c.ok!==false;
+    const meta=[["Case ID",m.case_id],["Operator",m.operator],["Collector version",m.collector_version],
+      ["Profile",m.profile],["Host",h.computer||CASE.host],["OS",h.os],
+      ["Current user",h.current_user],["Boot time",h.boot_time],["Collected at",m.collected_at||h.collected_at]
+    ].filter(([,v])=>v!=null&&v!=="");
+    const metaRows=meta.map(([k,v])=>`<div class="ioc"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("");
+    const rows=files.map(f=>`<tr><td>${esc(f.name)}</td><td>${f.count!=null?esc(f.count):"—"}</td><td><span class="hash">${esc(f.sha256||"")}</span></td></tr>`).join("");
+    const warn=(m.warnings&&m.warnings.length)?`<div class="custody bad" style="margin-top:12px">⚠ ${m.warnings.length} collection warning(s) — see Root cause</div>`:"";
+    return `<p class="vhead">Chain of custody</p>
+      <div class="card" style="margin-bottom:18px">
+        <h3>Evidence integrity</h3>
+        <div class="custody ${ok?"ok":"bad"}" style="font-size:13px;padding:9px 13px">${ok
+          ?"✓ chain-of-custody verified — every artifact hash matches the collection manifest"
+          :"✗ integrity failure — one or more artifacts do not match the manifest"}</div>
+        <p style="color:var(--muted);font-size:12.5px;line-height:1.55;margin:13px 0 0">Each artifact is SHA-256 hashed the moment it is collected and recorded in the manifest below. Verification recomputes every hash and compares it to the recorded value — a full match proves the evidence is byte-for-byte identical to what was collected and has not been altered since.</p>
+        ${warn}
+      </div>
+      <div class="cols"><div class="col"><div class="card"><h3>Collection record</h3>${metaRows}</div></div></div>
+      <h2 class="sec">Artifact hashes (SHA-256)</h2>
+      <table><thead><tr><th>Artifact file</th><th>Records</th><th>SHA-256</th></tr></thead><tbody>${rows}</tbody></table>`;
+  },
   ask(){
     const sugg=["How did the attacker establish persistence?","Is there command-and-control activity?",
       "Map this incident to MITRE ATT&CK.","What programs ran?","Build a timeline of the compromise."];

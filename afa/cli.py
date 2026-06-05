@@ -49,12 +49,15 @@ def _build(mode: str, model: str | None):
         raise typer.Exit(2)
 
 
-def _evidence(evidence, events, registry, package=None):
+def _evidence(evidence, events, registry, package=None, prefetch=None, shimcache=None,
+              mft=None, browser=None, wmi=None):
     """Load evidence from a collection package, your own exports, or the bundled sample."""
     if package:
         ev, _ = load_package(package, verify=True)
         return ev
-    return load_evidence(evidence, events_path=events, registry_path=registry)
+    return load_evidence(evidence, events_path=events, registry_path=registry,
+                         prefetch_path=prefetch, shimcache_path=shimcache, mft_path=mft,
+                         browser_path=browser, wmi_path=wmi)
 
 
 # shared options
@@ -62,6 +65,11 @@ _EV = typer.Option(None, help="path to an evidence directory (bundled sample if 
 _EVENTS = typer.Option(None, help="ingest your own events export (.json/.jsonl/.csv)")
 _REG = typer.Option(None, help="ingest your own registry export (.json/.reg)")
 _PKG = typer.Option(None, help="a collection package from the live collector (folder or .zip)")
+_PF = typer.Option(None, help="ingest prefetch export (.json/.csv — e.g. PECmd)")
+_SC = typer.Option(None, help="ingest shimcache/amcache export (.json/.csv)")
+_MFT = typer.Option(None, help="ingest file-system timeline / $MFT export (.json/.csv — e.g. MFTECmd)")
+_BR = typer.Option(None, help="ingest browser history export (.json/.csv — e.g. BrowsingHistoryView)")
+_WMI = typer.Option(None, help="ingest WMI subscription export (.json/.csv)")
 _MODE = typer.Option("offline", help="offline | local | cloud")
 _MODEL = typer.Option(None, help="model name (local/cloud)")
 
@@ -71,17 +79,19 @@ def ask(
     question: str = typer.Argument(..., help="a natural-language investigative question"),
     mode: str = _MODE, model: str = _MODEL,
     evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+    prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI,
 ):
     """Ask one question about the evidence."""
-    ev = _evidence(evidence, events, registry, package)
+    ev = _evidence(evidence, events, registry, package, prefetch, shimcache, mft, browser, wmi)
     render_terminal(_build(mode, model).investigate(question, ev))
 
 
 @app.command()
 def repl(mode: str = _MODE, model: str = _MODEL,
-         evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG):
+         evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+         prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI):
     """Interactive investigation prompt. Type 'exit' to quit."""
-    ev = _evidence(evidence, events, registry, package)
+    ev = _evidence(evidence, events, registry, package, prefetch, shimcache, mft, browser, wmi)
     provider = _build(mode, model)
     typer.echo(f"  evidence: {ev.host}  ·  provider: {provider.name}  ·  type 'exit' to quit")
     while True:
@@ -97,9 +107,10 @@ def repl(mode: str = _MODE, model: str = _MODEL,
 @app.command()
 def report(mode: str = _MODE, model: str = _MODEL,
            evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+           prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI,
            out: Path = typer.Option(Path("report.html"), help="HTML report output path")):
     """Run the standard case questions and write an HTML investigation report."""
-    ev = _evidence(evidence, events, registry, package)
+    ev = _evidence(evidence, events, registry, package, prefetch, shimcache, mft, browser, wmi)
     provider = _build(mode, model)
     answers = [provider.investigate(q, ev) for q in CASE_QUESTIONS]
     recon = build_reconstruction(ev)
@@ -109,9 +120,10 @@ def report(mode: str = _MODE, model: str = _MODEL,
 
 @app.command()
 def rootcause(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+              prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI,
               out: Path = typer.Option(None, help="optional HTML report output path")):
     """Reconstruct the attack chain and determine the incident's root cause."""
-    ev = _evidence(evidence, events, registry, package)
+    ev = _evidence(evidence, events, registry, package, prefetch, shimcache, mft, browser, wmi)
     recon = build_reconstruction(ev)
     typer.echo("\n" + render_rootcause(recon) + "\n")
     if out:
@@ -121,9 +133,10 @@ def rootcause(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _RE
 
 @app.command()
 def attack(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+           prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI,
            out: Path = typer.Option(None, help="optional HTML report output path")):
     """Map the evidence to MITRE ATT&CK techniques (deterministic, no model needed)."""
-    ev = _evidence(evidence, events, registry, package)
+    ev = _evidence(evidence, events, registry, package, prefetch, shimcache, mft, browser, wmi)
     amap = map_attack(ev)
     render_attack_terminal(amap)
     if out:
@@ -133,9 +146,10 @@ def attack(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, 
 
 @app.command()
 def brief(mode: str = _MODE, model: str = _MODEL,
-          evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG):
+          evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+          prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI):
     """Produce an executive incident brief grounded in the findings."""
-    ev = _evidence(evidence, events, registry, package)
+    ev = _evidence(evidence, events, registry, package, prefetch, shimcache, mft, browser, wmi)
     provider = _build(mode, model)
     narrate = getattr(provider, "narrate", None)
     text = narrate(ev) if narrate else render_brief(build_brief(ev))
@@ -162,13 +176,15 @@ def verify(package: Path = typer.Argument(..., help="collection package (folder 
 
 @app.command()
 def gui(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
+        prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI,
         mode: str = _MODE, model: str = _MODEL,
         port: int = typer.Option(8420, help="local port"),
         host: str = typer.Option("127.0.0.1", help="bind address (localhost only by default)")):
     """Launch the local web GUI (runs on 127.0.0.1, no egress)."""
     from .gui import serve
-    src = {"dir": evidence, "events": events, "registry": registry,
-           "package": package, "mode": mode, "model": model}
+    src = {"dir": evidence, "events": events, "registry": registry, "package": package,
+           "prefetch": prefetch, "shimcache": shimcache, "mft": mft, "browser": browser, "wmi": wmi,
+           "mode": mode, "model": model}
     typer.echo(f"\n  Air-Gapped Forensic Analyst — http://{host}:{port}\n  (Ctrl+C to stop)\n")
     serve(src, host=host, port=port)
 

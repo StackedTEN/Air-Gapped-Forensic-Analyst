@@ -1,0 +1,47 @@
+[
+  {
+    "path": "C:\\Users\\jdoe\\Documents\\notes.txt",
+    "name": "notes.txt",
+    "created": "2026-04-28T14:02:00Z",
+    "modified": "2026-05-01T17:10:00Z",
+    "mft_modified": "2026-05-01T17:10:00Z",
+    "size": 840,
+    "is_directory": false
+  },
+  {
+    "path": "C:\\Users\\jdoe\\Downloads\\svchost.exe",
+    "name": "svchost.exe",
+    "created": "2026-05-02T09:10:05Z",
+    "modified": "2026-05-02T09:10:05Z",
+    "mft_modified": "2026-05-02T09:10:05Z",
+    "size": 73216,
+    "is_directory": false
+  },
+  {
+    "path": "C:\\Users\\Public\\svchost.exe",
+    "name": "svchost.exe",
+    "created": "2026-05-02T09:11:50Z",
+    "modified": "2026-05-02T09:11:50Z",
+    "mft_modified": "2026-05-02T09:11:50Z",
+    "size": 73216,
+    "is_directory": false
+  },
+  {
+    "path": "C:\\Windows\\Temp\\f.exe",
+    "name": "f.exe",
+    "created": "2026-05-02T09:12:50Z",
+    "modified": "2026-05-02T09:12:50Z",
+    "mft_modified": "2026-05-02T09:12:50Z",
+    "size": 51200,
+    "is_directory": false
+  },
+  {
+    "path": "C:\\Users\\Public\\d.dll",
+    "name": "d.dll",
+    "created": "2026-05-02T09:13:40Z",
+    "modified": "2026-05-02T09:13:40Z",
+    "mft_modified": "2026-05-02T09:13:40Z",
+    "size": 18944,
+    "is_directory": false
+  }
+]

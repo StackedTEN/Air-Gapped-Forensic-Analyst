@@ -11,8 +11,9 @@
   modifies the target system.
 
 .PARAMETER Profile
-  quick   host, processes, network, autoruns, services, tasks, users, recent events
-  full    quick + image-file hashes + DNS cache + SMB sessions
+  quick   host, processes, network, autoruns, services, tasks, users, recent events,
+          WMI subscriptions, prefetch, file-system timeline (user-writable dirs), browser downloads
+  full    quick + image-file hashes + DNS cache + shimcache/amcache offline-parse note
 
 .PARAMETER ComputerName
   One or more remote hosts to triage over WinRM. Omit to collect locally.
@@ -236,6 +237,86 @@ $CollectCore = {
   $admins = (Get-LocalGroupMember -Group 'Administrators' -ErrorAction SilentlyContinue).Name
   foreach ($u in $users) { if ($admins -contains "$env:COMPUTERNAME\$($u.name)") { $u.groups = 'Administrators' } }
 
+  # --- deeper forensic sources (read-only live triage) ---------------------
+
+  # WMI event-subscription persistence (T1546.003): filter -> consumer bindings.
+  $wmi = New-Object System.Collections.ArrayList
+  try {
+    $filters   = @(Get-WmiObject -Namespace 'root\subscription' -Class __EventFilter -ErrorAction Stop)
+    $consumers = @(Get-WmiObject -Namespace 'root\subscription' -Class __EventConsumer -ErrorAction SilentlyContinue)
+    foreach ($b in @(Get-WmiObject -Namespace 'root\subscription' -Class __FilterToConsumerBinding -ErrorAction SilentlyContinue)) {
+      $fref = "$($b.Filter)"; $cref = "$($b.Consumer)"
+      $f = $filters   | Where-Object { $fref -like "*Name=`"$($_.Name)`"*" } | Select-Object -First 1
+      $c = $consumers | Where-Object { $cref -like "*Name=`"$($_.Name)`"*" } | Select-Object -First 1
+      $cmd = ''
+      if ($c) { $cmd = if ($c.CommandLineTemplate) { $c.CommandLineTemplate } elseif ($c.ScriptText) { $c.ScriptText } else { '' } }
+      [void]$wmi.Add([ordered]@{
+        filter_name = if ($f) { $f.Name } else { '' }
+        consumer_name = if ($c) { $c.Name } else { '' }
+        consumer_type = if ($c) { $c.__CLASS } else { '' }
+        query = if ($f) { "$($f.Query)" } else { '' }
+        command = "$cmd" })
+    }
+  } catch {
+    if ($_.Exception.Message -notmatch 'Invalid namespace') {
+      [void]$warnings.Add("Could not enumerate WMI subscriptions: $($_.Exception.Message.Trim())")
+    }
+  }
+
+  # Prefetch (read-only listing): execution evidence. Full run-count parsing is an
+  # offline step; live triage records first/last run from the .pf file timestamps.
+  $prefetch = New-Object System.Collections.ArrayList
+  $pfDir = Join-Path $env:WINDIR 'Prefetch'
+  if (Test-Path $pfDir) {
+    Get-ChildItem -Path $pfDir -Filter *.pf -ErrorAction SilentlyContinue |
+      Select-Object -First 512 | ForEach-Object {
+        [void]$prefetch.Add([ordered]@{
+          name = ($_.BaseName -split '-')[0]; path = ''; run_count = ''
+          last_run = $_.LastWriteTimeUtc.ToString('o'); first_run = $_.CreationTimeUtc.ToString('o')
+          prefetch_file = $_.Name })
+      }
+  } elseif ($isAdmin) {
+    [void]$warnings.Add("Prefetch is empty or disabled (SysMain off); execution-frequency evidence unavailable.")
+  }
+
+  # File-system timeline of user-writable locations — a pragmatic $MFT subset that
+  # pins dropper first-write times. Full $MFT parsing (MFTECmd) is an offline ingest path.
+  $filesystem = New-Object System.Collections.ArrayList
+  foreach ($d in @("$env:PUBLIC", "$env:WINDIR\Temp", "$env:LOCALAPPDATA\Temp",
+                   "$env:ProgramData", "$env:USERPROFILE\Downloads")) {
+    if (Test-Path $d) {
+      Get-ChildItem -Path $d -Recurse -File -ErrorAction SilentlyContinue -Force |
+        Select-Object -First 200 | ForEach-Object {
+          [void]$filesystem.Add([ordered]@{
+            path = $_.FullName; name = $_.Name
+            created = $_.CreationTimeUtc.ToString('o'); modified = $_.LastWriteTimeUtc.ToString('o')
+            mft_modified = ''; size = [int64]$_.Length; is_directory = $false })
+        }
+    }
+  }
+
+  # Browser delivery evidence. Live history DBs are locked by the running browser;
+  # triage records the Downloads folder as a delivery proxy. Full URLs/referrers are
+  # an offline ingest path (e.g. BrowsingHistoryView CSV -> `--browser`).
+  $browser = New-Object System.Collections.ArrayList
+  $dlDir = "$env:USERPROFILE\Downloads"
+  if (Test-Path $dlDir) {
+    Get-ChildItem -Path $dlDir -File -ErrorAction SilentlyContinue |
+      Select-Object -First 200 | ForEach-Object {
+        [void]$browser.Add([ordered]@{
+          type = 'download'; url = ''; title = $_.Name
+          timestamp = $_.CreationTimeUtc.ToString('o'); target_path = $_.FullName; browser = '(downloads folder)' })
+      }
+  }
+
+  # Shimcache/Amcache: AppCompatCache is a binary registry blob and Amcache.hve is
+  # locked live; both are parsed offline. Record presence and point to the ingest path.
+  $shimcache = @()
+  if ($CollectionProfile -eq 'full' -and
+      (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache')) {
+    [void]$warnings.Add("Shimcache/Amcache need offline parsing (AppCompatCacheParser / AmcacheParser); none parsed live. Ingest the parsed CSV with --shimcache.")
+  }
+
   # recent events (capped) in the analyzer's normalized shape
   $events = New-Object System.Collections.ArrayList
   $after = (Get-Date).AddDays(-$Days)
@@ -297,6 +378,8 @@ $CollectCore = {
     host = $host_info; processes = $processes; network = $network
     registry = $registry; services = $services; users = $users
     programs = $programs; events = $events; extra = $extra
+    prefetch = $prefetch; shimcache = $shimcache; filesystem = $filesystem
+    browser = $browser; wmi = $wmi
     warnings = $warnings
   }
 }
@@ -315,6 +398,11 @@ function Write-Package($result, $targetName) {
     'users.json'     = $result.users
     'services.json'  = $result.services
     'programs.json'  = $result.programs
+    'prefetch.json'  = $result.prefetch
+    'shimcache.json' = $result.shimcache
+    'filesystem.json'= $result.filesystem
+    'browser.json'   = $result.browser
+    'wmi.json'       = $result.wmi
   }
   # write UTF-8 WITHOUT a BOM (PS 5.1 `Out-File -Encoding utf8` adds one, which
   # breaks strict JSON parsers); the analyzer also reads utf-8-sig as a backstop.

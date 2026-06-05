@@ -88,10 +88,80 @@ EVENTS = [
     e("2026-05-02T09:40:00Z", 1102, "The audit log was cleared"),
 ]
 
+# --- deeper forensic sources (each corroborates the same kill chain) ---------
+# Delivery: a masqueraded "svchost.exe" pulled through the browser at 09:10,
+# written to disk (MFT), copied into C:\Users\Public, then executed (prefetch +
+# shimcache) and made persistent via a WMI subscription.  All hosts/URLs are
+# RFC 5737 / RFC 2606 reserved for documentation.
+BROWSER = [
+    {"type": "visit", "url": "http://intranet.example.test/portal", "title": "Corp Portal",
+     "timestamp": "2026-05-02T08:30:00Z", "target_path": "", "browser": "Chrome"},
+    {"type": "visit", "url": "http://cdn.example-update.test/", "title": "Software Update",
+     "timestamp": "2026-05-02T09:09:40Z", "target_path": "", "browser": "Chrome"},
+    {"type": "download", "url": "http://cdn.example-update.test/svchost.exe", "title": "svchost.exe",
+     "timestamp": "2026-05-02T09:10:00Z", "target_path": "C:\\Users\\jdoe\\Downloads\\svchost.exe",
+     "browser": "Chrome"},
+]
+
+FILESYSTEM = [
+    {"path": "C:\\Users\\jdoe\\Documents\\notes.txt", "name": "notes.txt",
+     "created": "2026-04-28T14:02:00Z", "modified": "2026-05-01T17:10:00Z",
+     "mft_modified": "2026-05-01T17:10:00Z", "size": 840, "is_directory": False},
+    {"path": "C:\\Users\\jdoe\\Downloads\\svchost.exe", "name": "svchost.exe",
+     "created": "2026-05-02T09:10:05Z", "modified": "2026-05-02T09:10:05Z",
+     "mft_modified": "2026-05-02T09:10:05Z", "size": 73216, "is_directory": False},
+    {"path": "C:\\Users\\Public\\svchost.exe", "name": "svchost.exe",
+     "created": "2026-05-02T09:11:50Z", "modified": "2026-05-02T09:11:50Z",
+     "mft_modified": "2026-05-02T09:11:50Z", "size": 73216, "is_directory": False},
+    {"path": "C:\\Windows\\Temp\\f.exe", "name": "f.exe",
+     "created": "2026-05-02T09:12:50Z", "modified": "2026-05-02T09:12:50Z",
+     "mft_modified": "2026-05-02T09:12:50Z", "size": 51200, "is_directory": False},
+    {"path": "C:\\Users\\Public\\d.dll", "name": "d.dll",
+     "created": "2026-05-02T09:13:40Z", "modified": "2026-05-02T09:13:40Z",
+     "mft_modified": "2026-05-02T09:13:40Z", "size": 18944, "is_directory": False},
+]
+
+PREFETCH = [
+    {"name": "svchost.exe", "path": "C:\\Users\\Public\\svchost.exe", "run_count": 3,
+     "last_run": "2026-05-02T09:30:00Z", "first_run": "2026-05-02T09:12:30Z",
+     "prefetch_file": "SVCHOST.EXE-1A2B3C4D.pf"},
+    {"name": "f.exe", "path": "C:\\Windows\\Temp\\f.exe", "run_count": 1,
+     "last_run": "2026-05-02T09:13:00Z", "first_run": "2026-05-02T09:13:00Z",
+     "prefetch_file": "F.EXE-5E6F7A8B.pf"},
+    {"name": "rundll32.exe", "path": "C:\\Windows\\System32\\rundll32.exe", "run_count": 1,
+     "last_run": "2026-05-02T09:14:00Z", "first_run": "2026-05-02T09:14:00Z",
+     "prefetch_file": "RUNDLL32.EXE-9C0D1E2F.pf"},
+    {"name": "powershell.exe", "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+     "run_count": 4, "last_run": "2026-05-02T09:12:00Z", "first_run": "2026-04-30T08:00:00Z",
+     "prefetch_file": "POWERSHELL.EXE-AB12CD34.pf"},
+]
+
+SHIMCACHE = [
+    {"position": 1, "name": "svchost.exe", "path": "C:\\Users\\Public\\svchost.exe",
+     "last_modified": "2026-05-02T09:11:50Z", "executed": True,
+     "sha1": "A94A8FE5CCB19BA61C4C0873D391E987982FBBD3"},
+    {"position": 2, "name": "f.exe", "path": "C:\\Windows\\Temp\\f.exe",
+     "last_modified": "2026-05-02T09:12:50Z", "executed": True,
+     "sha1": "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"},
+    {"position": 3, "name": "rundll32.exe", "path": "C:\\Windows\\System32\\rundll32.exe",
+     "last_modified": "2025-10-14T00:00:00Z", "executed": True, "sha1": ""},
+    {"position": 4, "name": "cmd.exe", "path": "C:\\Windows\\System32\\cmd.exe",
+     "last_modified": "2025-10-14T00:00:00Z", "executed": False, "sha1": ""},
+]
+
+WMI = [
+    {"filter_name": "WinUpdateFilter", "consumer_name": "WinUpdateConsumer",
+     "consumer_type": "CommandLineEventConsumer",
+     "query": "SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE "
+              "TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'",
+     "command": "C:\\Users\\Public\\svchost.exe"},
+]
+
 FILES = {
     "events.json": EVENTS, "registry.json": REGISTRY, "processes.json": PROCESSES,
     "network.json": NETWORK, "users.json": USERS, "services.json": SERVICES,
-    "programs.json": PROGRAMS,
+    "programs.json": PROGRAMS, "prefetch.json": PREFETCH, "shimcache.json": SHIMCACHE,
+    "filesystem.json": FILESYSTEM, "browser.json": BROWSER, "wmi.json": WMI,
 }
 
 

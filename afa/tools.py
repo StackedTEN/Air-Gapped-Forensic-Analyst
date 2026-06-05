@@ -242,6 +242,77 @@ def powershell_activity(ev: Evidence) -> dict:
     return {"count": len(items), "items": items}
 
 
+# --- deeper forensic tools (each backs one of the new sources) --------------
+def _is_suspicious_path(p: str) -> bool:
+    pl = (p or "").lower()
+    return any(s in pl for s in SUSPICIOUS_PATHS) or "\\downloads\\" in pl or "\\programdata\\" in pl
+
+
+_EXE_SUFFIXES = (".exe", ".dll", ".ps1", ".scr", ".js", ".hta", ".bat", ".vbs", ".zip", ".iso", ".lnk")
+
+
+def prefetch_execution(ev: Evidence) -> dict:
+    """Prefetch execution evidence: what ran, how many times, and when (first/last run)."""
+    items = sorted(ev.prefetch, key=lambda p: p.get("last_run") or "", reverse=True)
+    suspicious = [p for p in items if _is_suspicious_path(p.get("path", ""))]
+    return {"count": len(items), "suspicious_count": len(suspicious),
+            "items": items, "suspicious": suspicious}
+
+
+def shimcache_entries(ev: Evidence) -> dict:
+    """Amcache/Shimcache (AppCompatCache): programs present on the host — even if since deleted."""
+    items = ev.shimcache
+    suspicious = [s for s in items if _is_suspicious_path(s.get("path", ""))]
+    return {"count": len(items), "suspicious_count": len(suspicious),
+            "items": items, "suspicious": suspicious}
+
+
+def filesystem_timeline(ev: Evidence, around: str | None = None, minutes: int = 60,
+                        suspicious_only: bool = False) -> dict:
+    """$MFT file-system timeline: file create/modify times — pins the dropper's first write."""
+    def _key(r: dict) -> str:
+        return r.get("created") or r.get("modified") or ""
+
+    rows = ev.filesystem
+    if suspicious_only:
+        rows = [r for r in rows if _is_suspicious_path(r.get("path", ""))]
+    rows = sorted(rows, key=_key)
+    if around:
+        center = _ts(around)
+        lo, hi = center - timedelta(minutes=minutes), center + timedelta(minutes=minutes)
+        kept = []
+        for r in rows:
+            try:
+                if lo <= _ts(_key(r)) <= hi:
+                    kept.append(r)
+            except ValueError:
+                pass
+        rows = kept
+    dropped = sorted((r for r in ev.filesystem if _is_suspicious_path(r.get("path", ""))), key=_key)
+    return {"count": len(rows), "items": rows, "dropped_files": dropped,
+            "earliest_drop": dropped[0] if dropped else None}
+
+
+def browser_history(ev: Evidence, downloads_only: bool = False) -> dict:
+    """Browser history and downloads — initial-access (download/drive-by) and web-exfil evidence."""
+    rows = ev.browser
+    if downloads_only:
+        rows = [r for r in rows if r.get("type") == "download"]
+    downloads = [r for r in ev.browser if r.get("type") == "download"]
+    exe_downloads = [d for d in downloads
+                     if (d.get("target_path") or d.get("url") or "").lower().endswith(_EXE_SUFFIXES)]
+    return {"count": len(rows), "items": rows, "download_count": len(downloads),
+            "downloads": downloads, "executable_downloads": exe_downloads}
+
+
+def wmi_persistence(ev: Evidence) -> dict:
+    """WMI event-subscription persistence: __EventFilter -> consumer bindings (T1546.003)."""
+    items = ev.wmi
+    cmd = [w for w in items
+           if "commandline" in (w.get("consumer_type") or "").lower() or w.get("command")]
+    return {"count": len(items), "command_consumers": len(cmd), "items": items}
+
+
 # --- MITRE ATT&CK mapping ---------------------------------------------------
 TACTIC_ORDER = [
     "Initial Access", "Execution", "Persistence", "Privilege Escalation",
@@ -256,6 +327,33 @@ def _e(e: dict) -> str:
 
 def _r(r: dict) -> str:
     return f"{r['hive']}\\{r['key']} :: {r['value_name']}={r['value_data']}"
+
+
+def _wmi_evidence(ev: Evidence) -> list[str]:
+    out = []
+    for w in ev.wmi:
+        out.append(f"{w.get('filter_name','?')} -> {w.get('consumer_name','?')} "
+                   f"({w.get('consumer_type','?')}): {w.get('command') or w.get('query','')}".strip())
+    return out
+
+
+def _ingress_evidence(ev: Evidence) -> list[str]:
+    bh = browser_history(ev)
+    return [f"{d.get('browser') or 'browser'} downloaded {d.get('url','')} -> {d.get('target_path','')}".strip()
+            for d in bh["executable_downloads"]]
+
+
+def _user_execution_evidence(ev: Evidence) -> list[str]:
+    """A binary in a user-writable path with execution evidence (prefetch/shimcache)."""
+    out = []
+    for p in ev.prefetch:
+        if _is_suspicious_path(p.get("path", "")):
+            out.append(f"prefetch: {p.get('name','')} ran {p.get('run_count','?')}x, "
+                       f"last {p.get('last_run','')} ({p.get('path','')})")
+    for s in ev.shimcache:
+        if _is_suspicious_path(s.get("path", "")) and s.get("executed"):
+            out.append(f"shimcache: {s.get('path','')} (present + executed)")
+    return out
 
 
 # Each rule: technique id/name, the tactics it serves, and a matcher returning
@@ -304,6 +402,15 @@ ATTACK_RULES = [
      "tactics": ["Exfiltration"],
      "match": lambda ev: [_r(r) for r in ev.registry if r["category"] == "usbstor" and r["value_name"] == "FriendlyName"]
                          + [_e(e) for e in ev.events if e["event_id"] == 6416]},
+    {"id": "T1546.003", "name": "Event Triggered Execution: WMI Event Subscription",
+     "tactics": ["Persistence", "Privilege Escalation"],
+     "match": _wmi_evidence},
+    {"id": "T1105", "name": "Ingress Tool Transfer",
+     "tactics": ["Command and Control"],
+     "match": _ingress_evidence},
+    {"id": "T1204.002", "name": "User Execution: Malicious File",
+     "tactics": ["Execution"],
+     "match": _user_execution_evidence},
 ]
 
 
@@ -345,6 +452,14 @@ _REGISTRY = {
     "local_users": (local_users, {}),
     "program_execution": (program_execution, {}),
     "powershell_activity": (powershell_activity, {}),
+    "prefetch_execution": (prefetch_execution, {}),
+    "shimcache_entries": (shimcache_entries, {}),
+    "filesystem_timeline": (filesystem_timeline, {
+        "around": {"type": "string", "description": "ISO timestamp to center on"},
+        "minutes": {"type": "integer", "description": "window half-width in minutes"},
+        "suspicious_only": {"type": "boolean", "description": "only files in user-writable paths"}}),
+    "browser_history": (browser_history, {"downloads_only": {"type": "boolean"}}),
+    "wmi_persistence": (wmi_persistence, {}),
     "map_attack": (map_attack, {}),
 }
 

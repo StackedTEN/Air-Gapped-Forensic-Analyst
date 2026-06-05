@@ -13,9 +13,11 @@ from __future__ import annotations
 import re
 
 from .loader import Evidence
-from .tools import (SUSPICIOUS_PATHS, TACTIC_ORDER, _is_external, _remote_host,
-                    _suspicious_proc_names, account_changes, corroborated_c2,
-                    detect_antiforensics, list_autoruns, map_attack)
+from .tools import (SUSPICIOUS_PATHS, TACTIC_ORDER, _is_external, _is_suspicious_path,
+                    _remote_host, _suspicious_proc_names, account_changes, browser_history,
+                    corroborated_c2, detect_antiforensics, filesystem_timeline,
+                    list_autoruns, map_attack, prefetch_execution, shimcache_entries,
+                    wmi_persistence)
 
 _ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
@@ -88,18 +90,73 @@ def _malicious_origin(ev: Evidence):
     return cands[0]  # (ts, name)
 
 
+def _downloaded_dropper(ev: Evidence, origin_name: str):
+    """If a malicious binary was pulled down through the browser, that's the delivery.
+
+    Returns (download_row, confidence, ran_as) when an executable download
+    corroborates a suspicious-path binary or the malicious origin — the strongest
+    initial-access signal the collection can offer without email-gateway telemetry.
+    `ran_as` is the binary the download is shown to have become on disk.
+    """
+    bh = browser_history(ev)
+    if not bh["executable_downloads"]:
+        return None, "", ""
+    susp_names = {(_basename(p.get("path", "")) or "").lower()
+                  for p in ev.processes if _is_suspicious_path(p.get("path", ""))}
+    susp_names |= {(_basename(f.get("path", "")) or "").lower()
+                   for f in ev.filesystem if _is_suspicious_path(f.get("path", ""))}
+    susp_names.discard("")
+    for d in sorted(bh["executable_downloads"], key=lambda x: x.get("timestamp") or ""):
+        tgt = (d.get("target_path") or d.get("url") or "")
+        base = _basename(tgt)
+        # high confidence when the downloaded file is the same one that later ran
+        if base and (base.lower() in susp_names or base.lower() == (origin_name or "").lower()):
+            return d, "high", base
+        return d, "medium", base  # an exe was downloaded, but not provably the one that ran
+    return None, "", ""
+
+
+def _basename(p: str) -> str:
+    return re.split(r"[\\/]", (p or "").strip())[-1] if p else ""
+
+
+def _first_write(ev: Evidence, name: str) -> str:
+    """Earliest file-system create time for a binary (the dropper's first write)."""
+    nm = (name or "").lower()
+    times = sorted(f.get("created", "") for f in ev.filesystem
+                   if _basename(f.get("path", "")).lower() == nm and f.get("created"))
+    return times[0] if times else ""
+
+
 def _initial_access(ev: Evidence):
     origin = _malicious_origin(ev)
     if not origin:
         return ("Root cause could not be determined from the collected artifacts — "
                 "no clear malicious execution was observed.", "low", "")
     ts, name = origin
+
+    # A web download of the malicious file is the clearest delivery vector we can show.
+    dl, dl_conf, ran_as = _downloaded_dropper(ev, name)
+    if dl:
+        ran_as = ran_as or name
+        url = dl.get("url") or dl.get("target_path") or "an external URL"
+        fw = _first_write(ev, ran_as)
+        when_ts = dl.get("timestamp") or fw or ts
+        when = f" at {when_ts}" if when_ts else ""
+        firstrun = f" The dropper was first written to disk at {fw}." if fw else ""
+        return (f"Most likely root cause: a malicious executable ({ran_as}) downloaded through the "
+                f"web browser ({url}){when}, then executed on the host.{firstrun}", dl_conf, when_ts)
+
+    # MFT can still pin the dropper's first write even without a download record
+    fw = _first_write(ev, name)
+    when_ts = fw or ts
     parent = _parent_map(ev).get(name, "")
     vector, conf = INITIATOR_VECTOR.get(parent, ("an unknown initial-access vector", "low"))
-    when = f" at {ts}" if ts else ""
+    when = f" at {when_ts}" if when_ts else ""
     via = f", launched by {parent}" if parent else ""
+    firstrun = f" First written to disk at {fw}." if fw and fw != ts else ""
     return (f"Most likely root cause: {vector}. The earliest malicious activity was "
-            f"{name}{when}{via}.", conf, ts)
+            f"{name}{when}{via}.{firstrun}", conf, when_ts)
 
 
 def extract_iocs(ev: Evidence) -> dict:
@@ -118,16 +175,30 @@ def extract_iocs(ev: Evidence) -> dict:
     for pr in getattr(ev, "programs", []):
         if pr.get("sha1") and any(s in (pr.get("path") or "").lower() for s in SUSPICIOUS_PATHS):
             hashes.add(pr["sha1"])
+    # deeper sources: shimcache hashes + dropped-file paths from the MFT timeline
+    for s in shimcache_entries(ev)["suspicious"]:
+        if s.get("sha1"):
+            hashes.add(s["sha1"])
+        if s.get("path"):
+            paths.add(s["path"])
+    for f in filesystem_timeline(ev)["dropped_files"]:
+        if f.get("path"):
+            paths.add(f["path"])
     autoruns = list_autoruns(ev)
     for s in autoruns["suspicious"]:
         persistence.append(f"{s['hive']}\\{s['key']} :: {s['value']} = {s['data']}")
         if any(x in (s.get("data") or "").lower() for x in SUSPICIOUS_PATHS):
             paths.add(s["data"])
+    # WMI event-subscription persistence is its own mechanism
+    for w in wmi_persistence(ev)["items"]:
+        persistence.append(f"WMI: {w.get('filter_name','?')} -> {w.get('consumer_name','?')} "
+                           f"({w.get('command') or w.get('query','')})")
     for a in account_changes(ev)["items"]:
         accounts.add((a.get("detail") or "").split(":")[-1].strip())
+    download_urls = sorted({d.get("url", "") for d in browser_history(ev)["executable_downloads"] if d.get("url")})
     return {"external_ips": ips, "file_hashes": sorted(hashes),
             "suspicious_paths": sorted(paths), "accounts": sorted(accounts),
-            "persistence": persistence, "c2": c2}
+            "persistence": persistence, "c2": c2, "download_urls": download_urls}
 
 
 def _gaps(ev: Evidence, iocs: dict, rc_conf: str) -> list[str]:
@@ -147,7 +218,21 @@ def _gaps(ev: Evidence, iocs: dict, rc_conf: str) -> list[str]:
     if iocs["c2"]:
         gaps.append("C2 was observed as a live socket; pull proxy/DNS/firewall logs to scope the "
                     "connection's duration and any data transferred.")
-    gaps.append("No file-system timeline ($MFT) was collected; the dropper's first-write time is unconfirmed.")
+    # the file-system timeline is now a collectable source: report it as present or absent
+    fs = filesystem_timeline(ev)
+    if not ev.filesystem:
+        gaps.append("No file-system timeline ($MFT) was collected; the dropper's first-write time "
+                    "is unconfirmed — re-run with -Profile full to capture it.")
+    elif fs["earliest_drop"]:
+        d = fs["earliest_drop"]
+        gaps.append(f"File-system timeline confirms the dropper's first write: {d.get('path','')} "
+                    f"at {d.get('created','')} (corroborate against $MFT $LogFile for resident-file recovery).")
+    if not ev.browser:
+        gaps.append("No browser history was collected; if delivery was web-based, the download URL "
+                    "and referrer are unconfirmed.")
+    if wmi_persistence(ev)["count"]:
+        gaps.append("WMI event-subscription persistence (T1546.003) was found; enumerate the whole "
+                    "root\\subscription namespace fleet-wide — it commonly survives reimaging of user data.")
     return gaps
 
 
@@ -155,10 +240,15 @@ def _pivots(ev: Evidence, iocs: dict) -> list[str]:
     pivots = []
     for ip in iocs["external_ips"]:
         pivots.append(f"Hunt the fleet for any other host communicating with {ip}.")
+    for url in iocs.get("download_urls", []):
+        pivots.append(f"Block {url} at the proxy and hunt other hosts that fetched it.")
     for path in iocs["suspicious_paths"][:3]:
         pivots.append(f"Acquire and analyze the binary at {path} (hash, sandbox detonation, YARA).")
     for acct in iocs["accounts"]:
         pivots.append(f"Audit logon history and group membership for account '{acct}' domain-wide.")
+    if wmi_persistence(ev)["count"]:
+        pivots.append("Remove the malicious WMI subscription (Remove-WmiObject on the filter, "
+                      "consumer, and binding) and sweep the fleet for the same consumer name.")
     if iocs["file_hashes"]:
         pivots.append("Submit collected hashes to threat intel and block at EDR.")
     return pivots
@@ -211,6 +301,8 @@ def render_rootcause(recon: dict) -> str:
     lines += ["", "Indicators to pivot on:"]
     if io["c2"]:
         lines.append(f"  C2: {', '.join(io['c2'])}")
+    if io.get("download_urls"):
+        lines.append(f"  Download URLs: {', '.join(io['download_urls'])}")
     if io["file_hashes"]:
         lines.append(f"  Hashes: {', '.join(io['file_hashes'])}")
     if io["suspicious_paths"]:

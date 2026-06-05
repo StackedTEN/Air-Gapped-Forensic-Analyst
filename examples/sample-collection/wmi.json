@@ -1,0 +1,9 @@
+[
+  {
+    "filter_name": "WinUpdateFilter",
+    "consumer_name": "WinUpdateConsumer",
+    "consumer_type": "CommandLineEventConsumer",
+    "query": "SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'",
+    "command": "C:\\Users\\Public\\svchost.exe"
+  }
+]

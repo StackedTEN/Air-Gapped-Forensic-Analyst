@@ -1,0 +1,5 @@
+# The sample collection package is hash-verified against its manifest
+# (chain-of-custody SHA-256). Git's autocrlf must never rewrite line endings in
+# these files, or verify_package() fails on checkout on Windows. Treat them as
+# binary so the bytes are stored and restored exactly.
+examples/sample-collection/*.json -text

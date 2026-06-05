@@ -136,6 +136,23 @@
   .prov{margin-top:11px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .prov .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
   .loading{color:var(--muted);font-size:13px;padding:10px 0}
+  nav{flex:1 1 auto;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:4px}
+  .navgroup{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
+  .navhead{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);padding:6px 11px 3px}
+  nav button.ask-btn{border:1px solid var(--ember);color:var(--ember);margin-top:2px}
+  nav button.ask-btn .dot{background:var(--ember);opacity:1}
+  nav button.ask-btn:hover,nav button.ask-btn.active{background:var(--ember-soft);color:var(--text)}
+  .tl-phases{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:0 0 22px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  .tl-phase{font-family:var(--mono);font-size:11px;color:var(--text);display:inline-flex;align-items:center;gap:6px}
+  .tl-phase b{display:inline-block;width:17px;height:17px;line-height:17px;text-align:center;border-radius:50%;background:var(--ember);color:var(--ink);font-size:10px}
+  .tl-arrow{color:var(--faint);font-size:12px}
+  .tl-rail{position:relative;margin:8px 0 0 9px;padding-left:24px;border-left:2px solid var(--line)}
+  .tl-node{position:relative;padding:0 0 20px}
+  .tl-dot{position:absolute;left:-31px;top:4px;width:11px;height:11px;border-radius:50%;background:var(--ember);box-shadow:0 0 0 4px var(--ink)}
+  .tl-time{font-family:var(--mono);font-size:11px;color:var(--gold)}
+  .tl-row{display:flex;align-items:center;gap:8px;margin:3px 0}
+  .tl-proc{font-family:var(--mono);font-size:12px;color:var(--text)}
+  .tl-detail{color:var(--muted);font-size:13px;line-height:1.45}
   @media(max-width:820px){.app{grid-template-columns:1fr}aside{position:static;height:auto}main{padding:22px}}
 </style>
 </head>
@@ -161,12 +178,11 @@ const remoteHost = r => (r||"").split(":").length===2 ? (r||"").split(":")[0] : 
 const isExternal = r => { const h=remoteHost(r).trim(); return h && !PRIVATE.test(h); };
 
 let CASE=null;
-const VIEWS=[
-  ["overview","Root cause"],["attack","ATT&CK matrix"],["processes","Processes"],
-  ["network","Network"],["persistence","Persistence"],["events","Events"],
-  ["accounts","Accounts"],["programs","Programs"],["prefetch","Prefetch"],
-  ["shimcache","Shimcache"],["filesystem","Files ($MFT)"],["browser","Browser"],
-  ["wmi","WMI"],["ask","Ask the analyst"]
+const NAV_GROUPS=[
+  ["Analysis",[["overview","Root cause"],["timeline","Timeline"],["attack","ATT&CK matrix"],["ask","Ask the analyst"]]],
+  ["Artifacts",[["processes","Processes"],["network","Network"],["persistence","Persistence"],["events","Events"],
+    ["accounts","Accounts"],["programs","Programs"],["prefetch","Prefetch"],["shimcache","Shimcache"],
+    ["filesystem","Files ($MFT)"],["browser","Browser"],["wmi","WMI"]]]
 ];
 
 async function boot(){
@@ -185,8 +201,11 @@ function renderMeta(){
   $("#meta").innerHTML=html;
 }
 function renderNav(){
-  $("#nav").innerHTML=VIEWS.map(([id,label])=>
-    `<button data-v="${id}" onclick="show('${id}')"><span class="dot"></span>${esc(label)}</button>`).join("");
+  $("#nav").innerHTML=NAV_GROUPS.map(([group,items])=>
+    `<div class="navgroup"><div class="navhead">${esc(group)}</div>`+
+    items.map(([id,label])=>
+      `<button data-v="${id}" class="${id==='ask'?'ask-btn':''}" onclick="show('${id}')"><span class="dot"></span>${esc(label)}</button>`).join("")+
+    `</div>`).join("");
 }
 function show(id){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.dataset.v===id));
@@ -228,6 +247,22 @@ const RENDER={
     }).join("");
     return `<p class="vhead">MITRE ATT&CK — ${a.technique_count} techniques · ${a.tactics_covered} tactics</p>
       <div class="matrix">${cols}</div>`;
+  },
+  timeline(){
+    const ev=(CASE.artifacts.events||[]).slice().sort((a,b)=>String(a.ts).localeCompare(String(b.ts)));
+    const phases=CASE.rootcause.chain.map((s,i)=>
+      `<span class="tl-phase"><b>${i+1}</b>${esc(s.title)}</span>`).join('<span class="tl-arrow">\u2192</span>');
+    const rail=ev.map(e=>`
+      <div class="tl-node"><span class="tl-dot"></span>
+        <div class="tl-body">
+          <div class="tl-time">${esc(e.ts)}</div>
+          <div class="tl-row"><span class="chip">${esc(e.event_id)}</span>${e.process?`<span class="tl-proc">${esc(e.process)}</span>`:""}</div>
+          <div class="tl-detail">${esc(e.detail)}</div>
+        </div></div>`).join("");
+    return `<p class="vhead">Timeline \u2014 reconstructed sequence</p>
+      <div class="tl-phases">${phases}</div>
+      <h2 class="sec">Chronological events</h2>
+      <div class="tl-rail">${rail}</div>`;
   },
   processes(){ return table("Processes",CASE.artifacts.processes,
     [["name","Process"],["pid","PID"],["user","User"],["path","Image path"],["cmdline","Command line"]]); },

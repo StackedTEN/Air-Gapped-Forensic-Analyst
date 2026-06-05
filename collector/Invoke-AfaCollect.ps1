@@ -62,6 +62,20 @@ $CollectCore = {
     else { 'other' }
   }
 
+  # Human-readable label per event id. Rendering $_.Message in the hot loop forces
+  # Get-WinEvent to load each provider's message metadata and format the event —
+  # the dominant cost of a "quick" collection. We build `detail` from this static
+  # map plus cheap $_.Properties access instead, and never touch $_.Message.
+  $EventLabels = @{
+    4624 = 'An account was successfully logged on';     4625 = 'An account failed to log on'
+    4672 = 'Special privileges assigned to new logon';  4688 = 'A new process has been created'
+    4720 = 'A user account was created';                4726 = 'A user account was deleted'
+    4732 = 'A member was added to a security-enabled local group'
+    4698 = 'A scheduled task was created';              1102 = 'The audit log was cleared'
+    7045 = 'A new service was installed';               7040 = 'Service start type was changed'
+    104  = 'Event log was cleared';                     4104 = 'PowerShell script block logged'
+  }
+
   # Only hash binaries that matter forensically (suspicious/non-OS locations),
   # unless -HashAll is set. This keeps the `full` profile fast.
   function Should-Hash([string]$path) {
@@ -81,14 +95,30 @@ $CollectCore = {
     collected_at = (Get-Date).ToUniversalTime().ToString('o')
   }
 
+  # owner lookup: ONE bulk call. A per-process `Invoke-CimMethod GetOwner` round-trip
+  # is the dominant cost of collection (hundreds of seconds for a few hundred procs);
+  # `Get-Process -IncludeUserName` returns DOMAIN\User for every process at once.
+  # (Requires elevation — when not admin we skip it; owners stay blank, as the
+  # per-process GetOwner already did for most processes without admin.)
+  $ownerById = @{}
+  if ($isAdmin) {
+    try {
+      foreach ($gp in (Get-Process -IncludeUserName -ErrorAction Stop)) {
+        if ($gp.UserName) { $ownerById[[int]$gp.Id] = [string]$gp.UserName }
+      }
+    } catch {
+      [void]$warnings.Add("Bulk owner resolution (Get-Process -IncludeUserName) failed: $($_.Exception.Message.Trim())")
+    }
+  }
+
   # processes (read-only): pid, ppid, image, command line, owner
   $processes = Get-CimInstance Win32_Process | ForEach-Object {
-    $owner = ($_ | Invoke-CimMethod -MethodName GetOwner -ErrorAction SilentlyContinue)
+    $pidInt = [int]$_.ProcessId
     [ordered]@{
       pid = $_.ProcessId; ppid = $_.ParentProcessId
       name = $_.Name; path = $_.ExecutablePath; cmdline = $_.CommandLine
-      user = if ($owner.User) { "$($owner.Domain)\$($owner.User)" } else { '' }
-      created = if ($_.CreationDate) { $_.CreationDate.ToString('o') } else { '' }
+      user = $(if ($ownerById.ContainsKey($pidInt)) { $ownerById[$pidInt] } else { '' })
+      created = $(if ($_.CreationDate) { $_.CreationDate.ToString('o') } else { '' })
       hash = ''
     }
   }
@@ -215,10 +245,35 @@ $CollectCore = {
     try {
       Get-WinEvent -FilterHashtable @{ LogName=$t.Log; Id=$t.Ids; StartTime=$after } -MaxEvents $MaxEvents -ErrorAction Stop |
         ForEach-Object {
+          $eid = [int]$_.Id
+          $props = $_.Properties               # already-parsed event data; no message rendering
+          $proc = ''; $parent = ''; $cmd = ''; $acct = ''
+          switch ($eid) {
+            4688 {  # New Process: NewProcessName, ParentProcessName, CommandLine, SubjectUserName
+              if ($props.Count -ge 6)  { $proc   = [string]$props[5].Value }
+              if ($props.Count -ge 9)  { $cmd    = [string]$props[8].Value }
+              if ($props.Count -ge 14) { $parent = [string]$props[13].Value }
+              if ($props.Count -ge 2)  { $acct   = [string]$props[1].Value }
+              if ($proc)   { $proc   = ($proc   -split '\\')[-1] }
+              if ($parent) { $parent = ($parent -split '\\')[-1] }
+            }
+            { @(4624,4625) -contains $_ } { if ($props.Count -ge 6) { $acct = [string]$props[5].Value } }
+            4672 { if ($props.Count -ge 2) { $acct = [string]$props[1].Value } }
+            { @(4720,4726) -contains $_ } { if ($props.Count -ge 1) { $acct = [string]$props[0].Value } }
+          }
+          $label = $EventLabels[$eid]; if (-not $label) { $label = "Event $eid" }
+          if ($eid -eq 4688) {
+            $detail = "${label}: $proc"
+            if ($cmd) { $detail += " - $cmd" }
+          } elseif ($acct) {
+            $detail = "$label (account: $acct)"
+          } else {
+            $detail = $label
+          }
           [void]$events.Add([ordered]@{
-            ts=$_.TimeCreated.ToUniversalTime().ToString('o'); event_id=$_.Id; channel=$t.Log;
-            computer=$env:COMPUTERNAME; user=''; process=''; parent_process='';
-            cmdline=''; dst_ip=''; detail=($_.Message -split "`n")[0].Trim() })
+            ts=$_.TimeCreated.ToUniversalTime().ToString('o'); event_id=$eid; channel=$t.Log;
+            computer=$env:COMPUTERNAME; user=$acct; process=$proc; parent_process=$parent;
+            cmdline=$cmd; dst_ip=''; detail=$detail })
         }
     } catch {
       if ($_.Exception.Message -notmatch 'No events were found') {

@@ -203,6 +203,28 @@ def local_users(ev: Evidence) -> dict:
     return {"count": len(ev.users), "items": ev.users}
 
 
+def _suspicious_proc_names(ev: Evidence) -> set:
+    return {p.get("name", "").lower() for p in ev.processes
+            if p.get("path") and any(s in p["path"].lower() for s in SUSPICIOUS_PATHS)}
+
+
+def corroborated_c2(ev: Evidence) -> list[dict]:
+    """External endpoints that actually look like C2 — not every :443 connection.
+
+    Counted only when backed by a network/dst_ip event, or when the owning process
+    is running from a suspicious location. This keeps benign outbound TLS from
+    being mislabeled as command-and-control on a healthy host.
+    """
+    out, susp = [], _suspicious_proc_names(ev)
+    for e in ev.events:
+        if e.get("dst_ip") and _is_external(e["dst_ip"]):
+            out.append({"endpoint": e["dst_ip"], "via": e.get("process") or "event"})
+    for n in ev.network:
+        if _is_external(_remote_host(n.get("remote", ""))) and n.get("process", "").lower() in susp:
+            out.append({"endpoint": n.get("remote", ""), "via": n.get("process", "")})
+    return out
+
+
 def program_execution(ev: Evidence) -> dict:
     """Program-execution evidence (Amcache/Shimcache-style): what ran, when, hash."""
     return {"count": len(ev.programs), "items": ev.programs}
@@ -275,9 +297,7 @@ ATTACK_RULES = [
      "match": lambda ev: [_e(e) for e in ev.events if e["event_id"] == 1102]},
     {"id": "T1071.001", "name": "Application Layer Protocol: Web Protocols",
      "tactics": ["Command and Control"],
-     "match": lambda ev: [_e(e) for e in ev.events if e.get("dst_ip")]
-                         + [f"{n.get('process') or 'pid ' + str(n.get('pid'))} -> {n.get('remote','')}"
-                            for n in ev.network if _is_external(_remote_host(n.get("remote", "")))]},
+     "match": lambda ev: [f"{c['via']} -> {c['endpoint']}" for c in corroborated_c2(ev)]},
     {"id": "T1052.001", "name": "Exfiltration Over Physical Medium: USB",
      "tactics": ["Exfiltration"],
      "match": lambda ev: [_r(r) for r in ev.registry if r["category"] == "usbstor" and r["value_name"] == "FriendlyName"]

@@ -14,7 +14,8 @@ import re
 
 from .loader import Evidence
 from .tools import (SUSPICIOUS_PATHS, TACTIC_ORDER, _is_external, _remote_host,
-                    account_changes, detect_antiforensics, list_autoruns, map_attack)
+                    _suspicious_proc_names, account_changes, corroborated_c2,
+                    detect_antiforensics, list_autoruns, map_attack)
 
 _ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
@@ -102,23 +103,20 @@ def _initial_access(ev: Evidence):
 
 
 def extract_iocs(ev: Evidence) -> dict:
-    ips, hashes, paths, accounts, persistence, c2 = set(), set(), set(), set(), [], set()
-    for n in ev.network:
-        host = _remote_host(n.get("remote", ""))
-        if _is_external(host):
-            ips.add(host); c2.add(n.get("remote", ""))
-    for e in ev.events:
-        if e.get("dst_ip") and _is_external(e["dst_ip"]):
-            ips.add(e["dst_ip"]); c2.add(e["dst_ip"])
+    paths, accounts, persistence = set(), set(), []
+    hashes = set()
+    c2_list = corroborated_c2(ev)
+    c2 = sorted({c["endpoint"] for c in c2_list})
+    ips = sorted({_remote_host(c["endpoint"]) for c in c2_list})
     for p in ev.processes:
-        h = (p.get("hash") or "").strip()
-        if h and "..." not in h and len(h) >= 16:
-            hashes.add(h)
-        path = (p.get("path") or "")
+        path = p.get("path") or ""
         if any(s in path.lower() for s in SUSPICIOUS_PATHS):
             paths.add(path)
+            h = (p.get("hash") or "").strip()
+            if h and "..." not in h and len(h) >= 16:
+                hashes.add(h)
     for pr in getattr(ev, "programs", []):
-        if pr.get("sha1"):
+        if pr.get("sha1") and any(s in (pr.get("path") or "").lower() for s in SUSPICIOUS_PATHS):
             hashes.add(pr["sha1"])
     autoruns = list_autoruns(ev)
     for s in autoruns["suspicious"]:
@@ -127,13 +125,16 @@ def extract_iocs(ev: Evidence) -> dict:
             paths.add(s["data"])
     for a in account_changes(ev)["items"]:
         accounts.add(a["detail"].split(":")[-1].strip())
-    return {"external_ips": sorted(ips), "file_hashes": sorted(hashes),
+    return {"external_ips": ips, "file_hashes": sorted(hashes),
             "suspicious_paths": sorted(paths), "accounts": sorted(accounts),
-            "persistence": persistence, "c2": sorted(c2)}
+            "persistence": persistence, "c2": c2}
 
 
 def _gaps(ev: Evidence, iocs: dict, rc_conf: str) -> list[str]:
     gaps = []
+    # collection-time warnings (e.g. Security log not collected) come first and loudest
+    for w in getattr(ev, "collection_warnings", []):
+        gaps.append(f"Collection warning: {w}")
     if rc_conf in ("medium", "low"):
         gaps.append("Initial-access vector was inferred from process ancestry; no email-gateway, "
                     "web-proxy, or EDR telemetry in this collection to confirm it.")

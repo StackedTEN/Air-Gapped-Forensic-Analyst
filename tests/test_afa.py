@@ -376,3 +376,51 @@ class TestGui:
         html = self.c.get("/").text
         assert "Forensic Analyst" in html
         assert "googleapis" not in html and "http://" not in html.split("led")[0]  # no external assets
+
+
+class TestBomTolerance:
+    def test_utf8_bom_package_loads_and_verifies(self, tmp_path):
+        # PS 5.1 `Out-File -Encoding utf8` prepends a UTF-8 BOM; the loader must cope.
+        import hashlib
+        dst = tmp_path / "bom"
+        shutil.copytree(PKG, dst)
+        manifest = json.loads((dst / "manifest.json").read_text())
+        for e in manifest["files"]:
+            p = dst / e["name"]
+            p.write_bytes(b"\xef\xbb\xbf" + p.read_bytes())
+            e["sha256"] = hashlib.sha256(p.read_bytes()).hexdigest().upper()
+        (dst / "manifest.json").write_text(json.dumps(manifest))
+        assert verify_package(dst)["ok"] is True
+        ev, _ = load_package(dst)
+        assert ev.host == "WEB-03" and len(ev.processes) == 4
+
+
+from afa.loader import Evidence
+from afa.tools import corroborated_c2
+
+
+class TestC2Precision:
+    def test_benign_external_tls_is_not_flagged_as_c2(self):
+        ev = Evidence(
+            host_name="DESK-9",
+            processes=[{"pid": 11, "ppid": 1, "name": "chrome.exe",
+                        "path": "C:\\Program Files\\Google\\Chrome\\chrome.exe", "cmdline": "", "hash": ""}],
+            network=[{"proto": "tcp", "remote": "142.250.72.46:443", "state": "Established",
+                      "pid": 11, "process": "chrome.exe"}],
+        )
+        assert corroborated_c2(ev) == []
+        ids = {t["id"] for t in map_attack(ev)["techniques"]}
+        assert "T1071.001" not in ids
+
+    def test_suspicious_process_external_is_flagged(self):
+        ev, _ = load_package(PKG)  # svchost.exe runs from C:\Users\Public -> corroborated
+        assert any("203.0.113.45" in c["endpoint"] for c in corroborated_c2(ev))
+        assert "T1071.001" in {t["id"] for t in map_attack(ev)["techniques"]}
+
+
+class TestCollectionWarningsSurface:
+    def test_security_log_warning_becomes_a_gap(self):
+        ev = Evidence(host_name="SRV-1",
+                      collection_warnings=["Security event log was not collected (run elevated)."])
+        recon = build_reconstruction(ev)
+        assert any(g.startswith("Collection warning:") and "Security" in g for g in recon["gaps"])

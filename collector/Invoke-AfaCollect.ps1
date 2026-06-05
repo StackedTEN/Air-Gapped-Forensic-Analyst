@@ -24,12 +24,13 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('quick','full')] [string]$Profile = 'quick',
+  [Alias('Profile')] [ValidateSet('quick','full')] [string]$CollectionProfile = 'quick',
   [string[]]$ComputerName,
   [string]$Operator = $env:USERNAME,
   [string]$CaseId = ("IR-" + (Get-Date -Format 'yyyyMMdd-HHmmss')),
   [int]$Days = 7,
   [int]$MaxEvents = 2000,
+  [switch]$HashAll,
   [string]$OutputPath = (Join-Path (Get-Location) 'afa-collections')
 )
 
@@ -44,7 +45,14 @@ $EventTargets = @(
 
 # ---- the collection scriptblock; runs locally or on a remote host ----
 $CollectCore = {
-  param($Profile, $Days, $MaxEvents, $EventTargets)
+  param($CollectionProfile, $Days, $MaxEvents, $EventTargets, $HashAll)
+
+  $warnings = New-Object System.Collections.ArrayList
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+             ).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+  if (-not $isAdmin) {
+    [void]$warnings.Add("Collector was NOT run elevated; the Security event log (4624/4625/4688/4720/1102 …) likely could not be read. Re-run as Administrator for a complete picture.")
+  }
 
   function Cat-RegKey([string]$key) {
     $k = $key.ToLower()
@@ -52,6 +60,17 @@ $CollectCore = {
     elseif ($k -like '*\services\*') { 'service' }
     elseif ($k -like '*usbstor*') { 'usbstor' }
     else { 'other' }
+  }
+
+  # Only hash binaries that matter forensically (suspicious/non-OS locations),
+  # unless -HashAll is set. This keeps the `full` profile fast.
+  function Should-Hash([string]$path) {
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $false }
+    if ($HashAll) { return $true }
+    $p = $path.ToLower()
+    return ($p -like '*\users\public\*' -or $p -like '*\appdata\*' -or
+            $p -like '*\windows\temp\*' -or $p -like '*\programdata\*' -or
+            ($p -notlike "$($env:WINDIR.ToLower())\*" -and $p -notlike '*\program files*'))
   }
 
   $host_info = [ordered]@{
@@ -75,9 +94,9 @@ $CollectCore = {
   }
 
   # optional: hash process images (slower) for the full profile
-  if ($Profile -eq 'full') {
+  if ($CollectionProfile -eq 'full') {
     foreach ($p in $processes) {
-      if ($p.path -and (Test-Path -LiteralPath $p.path)) {
+      if (Should-Hash $p.path) {
         try { $p.hash = (Get-FileHash -LiteralPath $p.path -Algorithm SHA256).Hash } catch {}
       }
     }
@@ -120,9 +139,9 @@ $CollectCore = {
       value_name='ImagePath'; value_data="$($_.PathName)"; last_write=''; category='service'
     })
     $signed = ''
-    if ($Profile -eq 'full' -and $_.PathName) {
+    if ($CollectionProfile -eq 'full' -and $_.PathName) {
       $img = ($_.PathName -replace '^"','' -split '"')[0]
-      if (Test-Path -LiteralPath $img) {
+      if (Should-Hash $img) {
         try { $signed = (Get-AuthenticodeSignature -LiteralPath $img).Status.ToString() } catch {}
       }
     }
@@ -138,7 +157,7 @@ $CollectCore = {
     if ($p.path -and -not $seen.ContainsKey($p.path)) {
       $seen[$p.path] = $true
       $sha1 = ''
-      if (Test-Path -LiteralPath $p.path) {
+      if (Should-Hash $p.path) {
         try { $sha1 = (Get-FileHash -LiteralPath $p.path -Algorithm SHA1).Hash } catch {}
       }
       [void]$programs.Add([ordered]@{ name=$p.name; path=$p.path; sha1=$sha1; first_run=$p.created })
@@ -190,21 +209,31 @@ $CollectCore = {
   # recent events (capped) in the analyzer's normalized shape
   $events = New-Object System.Collections.ArrayList
   $after = (Get-Date).AddDays(-$Days)
+  $channelCounts = @{}
   foreach ($t in $EventTargets) {
+    $before = $events.Count
     try {
-      Get-WinEvent -FilterHashtable @{ LogName=$t.Log; Id=$t.Ids; StartTime=$after } -MaxEvents $MaxEvents -ErrorAction SilentlyContinue |
+      Get-WinEvent -FilterHashtable @{ LogName=$t.Log; Id=$t.Ids; StartTime=$after } -MaxEvents $MaxEvents -ErrorAction Stop |
         ForEach-Object {
           [void]$events.Add([ordered]@{
             ts=$_.TimeCreated.ToUniversalTime().ToString('o'); event_id=$_.Id; channel=$t.Log;
             computer=$env:COMPUTERNAME; user=''; process=''; parent_process='';
             cmdline=''; dst_ip=''; detail=($_.Message -split "`n")[0].Trim() })
         }
-    } catch {}
+    } catch {
+      if ($_.Exception.Message -notmatch 'No events were found') {
+        [void]$warnings.Add("Could not read '$($t.Log)' log: $($_.Exception.Message.Trim())")
+      }
+    }
+    $channelCounts[$t.Log] = $events.Count - $before
   }
   $events += $taskEvents
+  if (($channelCounts['Security'] | ForEach-Object { $_ }) -eq 0) {
+    [void]$warnings.Add("ZERO Security events were collected. The Security log is the most important IR source (logons, process creation, account changes, log clearing). This usually means the collector was not elevated. Results are INCOMPLETE.")
+  }
 
-  $extra = @{}
-  if ($Profile -eq 'full') {
+  $extra = @{ channel_counts = $channelCounts }
+  if ($CollectionProfile -eq 'full') {
     $extra.dns = Get-DnsClientCache -ErrorAction SilentlyContinue |
       Select-Object Entry, Data, @{n='type';e={$_.Type}}
   }
@@ -213,6 +242,7 @@ $CollectCore = {
     host = $host_info; processes = $processes; network = $network
     registry = $registry; services = $services; users = $users
     programs = $programs; events = $events; extra = $extra
+    warnings = $warnings
   }
 }
 
@@ -231,21 +261,29 @@ function Write-Package($result, $targetName) {
     'services.json'  = $result.services
     'programs.json'  = $result.programs
   }
+  # write UTF-8 WITHOUT a BOM (PS 5.1 `Out-File -Encoding utf8` adds one, which
+  # breaks strict JSON parsers); the analyzer also reads utf-8-sig as a backstop.
+  $utf8 = New-Object System.Text.UTF8Encoding($false)
   $entries = @()
   foreach ($name in $files.Keys) {
     $path = Join-Path $dir $name
-    ($files[$name] | ConvertTo-Json -Depth 6) | Out-File -FilePath $path -Encoding utf8
+    [System.IO.File]::WriteAllText($path, (($files[$name] | ConvertTo-Json -Depth 6)), $utf8)
     $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
-    $count = @($files[$name]).Count
-    $entries += [ordered]@{ name=$name; sha256=$hash; count=$count }
+    $entries += [ordered]@{ name=$name; sha256=$hash; count=@($files[$name]).Count }
   }
 
   $manifest = [ordered]@{
     case_id = $CaseId; operator = $Operator; collector_version = $CollectorVersion
-    profile = $Profile; host = $result.host
-    collected_at = (Get-Date).ToUniversalTime().ToString('o'); files = $entries
+    profile = $CollectionProfile; host = $result.host
+    collected_at = (Get-Date).ToUniversalTime().ToString('o')
+    warnings = @($result.warnings); channel_counts = $result.extra.channel_counts
+    files = $entries
   }
-  ($manifest | ConvertTo-Json -Depth 8) | Out-File -FilePath (Join-Path $dir 'manifest.json') -Encoding utf8
+  [System.IO.File]::WriteAllText((Join-Path $dir 'manifest.json'),
+    ($manifest | ConvertTo-Json -Depth 8), $utf8)
+
+  # surface collection warnings to the operator immediately
+  foreach ($w in @($result.warnings)) { Write-Warning $w }
 
   $zip = "$dir.zip"
   Compress-Archive -Path "$dir\*" -DestinationPath $zip -Force
@@ -255,20 +293,20 @@ function Write-Package($result, $targetName) {
 
 # ---- run locally or fan out over WinRM ----
 $OutputPath = (New-Item -ItemType Directory -Force -Path $OutputPath).FullName
-Write-Host "AFA triage collector v$CollectorVersion  profile=$Profile  case=$CaseId"
+Write-Host "AFA triage collector v$CollectorVersion  profile=$CollectionProfile  case=$CaseId"
 
 if ($ComputerName) {
   foreach ($cn in $ComputerName) {
     Write-Host "collecting from $cn ..."
     try {
       $res = Invoke-Command -ComputerName $cn -ScriptBlock $CollectCore `
-        -ArgumentList $Profile, $Days, $MaxEvents, $EventTargets -ErrorAction Stop
+        -ArgumentList $CollectionProfile, $Days, $MaxEvents, $EventTargets, $HashAll -ErrorAction Stop
       Write-Package $res $cn | Out-Null
     } catch { Write-Warning "  $cn failed: $_" }
   }
 } else {
   Write-Host "collecting from localhost ..."
-  $res = & $CollectCore $Profile $Days $MaxEvents $EventTargets
+  $res = & $CollectCore $CollectionProfile $Days $MaxEvents $EventTargets $HashAll
   Write-Package $res $env:COMPUTERNAME | Out-Null
 }
 

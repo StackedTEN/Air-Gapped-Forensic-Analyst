@@ -182,7 +182,7 @@ def normalize_reg(text: str) -> list[dict]:
 # --------------------------------------------------------------------------
 def normalize_events(path: str | Path) -> list[dict]:
     path = Path(path)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".csv":
         return [_norm_csv_row(r) for r in csv.DictReader(io.StringIO(text))]
     if path.suffix.lower() == ".jsonl":
@@ -202,7 +202,7 @@ def normalize_events(path: str | Path) -> list[dict]:
 
 def normalize_registry(path: str | Path) -> list[dict]:
     path = Path(path)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".reg":
         return normalize_reg(text)
     data = json.loads(text)

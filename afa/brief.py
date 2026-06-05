@@ -10,7 +10,7 @@ model can instead be handed the same structure to write the prose (see
 from __future__ import annotations
 
 from .loader import Evidence
-from .tools import (_is_external, _remote_host, account_changes, detect_antiforensics,
+from .tools import (_remote_host, account_changes, corroborated_c2, detect_antiforensics,
                     list_autoruns, map_attack, scheduled_tasks, search_events, usb_history)
 
 
@@ -21,8 +21,7 @@ def build_brief(ev: Evidence) -> dict:
     accts = account_changes(ev)
     tasks = scheduled_tasks(ev)
     attack = map_attack(ev)
-    c2_events = [e for e in ev.events if e.get("dst_ip")]
-    c2_net = [n for n in ev.network if _is_external(_remote_host(n.get("remote", "")))]
+    c2 = corroborated_c2(ev)
     powershell = ([e for e in ev.events if e.get("process") == "powershell.exe"]
                   or [p for p in ev.processes if p.get("name", "").lower() == "powershell.exe"])
 
@@ -38,9 +37,8 @@ def build_brief(ev: Evidence) -> dict:
     if accts["count"]:
         names = ", ".join(a["detail"].split(":")[-1].strip() for a in accts["items"])
         key_findings.append(f"Local account(s) created: {names}.")
-    if c2_events or c2_net:
-        ips = sorted({e["dst_ip"] for e in c2_events}
-                     | {_remote_host(n.get("remote", "")) for n in c2_net})
+    if c2:
+        ips = sorted({_remote_host(x["endpoint"]) for x in c2})
         key_findings.append(f"Outbound command-and-control to {', '.join(ips)}.")
     if usb["count"]:
         key_findings.append("Removable USB storage attached — potential exfiltration vector.")

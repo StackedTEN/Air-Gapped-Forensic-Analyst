@@ -48,7 +48,7 @@ def verify_package(path: str | Path) -> dict:
     """Recompute every file's hash and compare to the manifest."""
     root, tmp = _resolve_dir(path)
     try:
-        manifest = json.loads((root / "manifest.json").read_text())
+        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8-sig"))
         results = []
         for entry in manifest.get("files", []):
             fp = root / entry["name"]
@@ -65,7 +65,7 @@ def _load_json(root: Path, name: str) -> list[dict]:
     fp = root / name
     if not fp.exists():
         return []
-    data = json.loads(fp.read_text())
+    data = json.loads(fp.read_text(encoding="utf-8-sig"))
     return data if isinstance(data, list) else [data]
 
 
@@ -76,7 +76,7 @@ def load_package(path: str | Path, verify: bool = True) -> tuple[Evidence, dict]
     """
     root, tmp = _resolve_dir(path)
     try:
-        manifest = json.loads((root / "manifest.json").read_text())
+        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8-sig"))
         if verify:
             v = verify_package(root)
             if not v["ok"]:
@@ -90,6 +90,7 @@ def load_package(path: str | Path, verify: bool = True) -> tuple[Evidence, dict]
             users=_load_json(root, "users.json"),
             services=_load_json(root, "services.json"),
             programs=_load_json(root, "programs.json"),
+            collection_warnings=list(manifest.get("warnings", []) or []),
             source=str(path),
             host_name=(manifest.get("host", {}) or {}).get("computer", ""),
         )

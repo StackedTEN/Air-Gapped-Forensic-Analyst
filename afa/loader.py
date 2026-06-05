@@ -20,6 +20,7 @@ class Evidence:
     users: list[dict] = field(default_factory=list)
     services: list[dict] = field(default_factory=list)
     programs: list[dict] = field(default_factory=list)
+    collection_warnings: list[str] = field(default_factory=list)
     source: str = ""
     host_name: str = ""
 
@@ -52,9 +53,9 @@ def load_evidence(
         return Evidence(registry=registry, events=events, source=src)
 
     d = Path(directory) if directory else DEFAULT_DIR
-    registry = json.loads((d / "registry.json").read_text())
+    registry = json.loads((d / "registry.json").read_text(encoding="utf-8-sig"))
     events = []
-    with (d / "events.jsonl").open() as f:
+    with (d / "events.jsonl").open(encoding="utf-8-sig") as f:
         for line in f:
             line = line.strip()
             if line:

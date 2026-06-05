@@ -179,6 +179,7 @@ function renderMeta(){
   if(m){ rows.push(["Case",m.case_id],["Operator",m.operator],["Profile",m.profile]); }
   let html=rows.map(([k,v])=>`<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("");
   if(c){ html+=`<div class="custody ${c.ok?"ok":"bad"}">${c.ok?"✓ chain-of-custody verified":"✗ integrity failure"}</div>`; }
+  if(m && m.warnings && m.warnings.length){ html+=`<div class="custody bad">⚠ ${m.warnings.length} collection warning(s) — see Root cause</div>`; }
   $("#meta").innerHTML=html;
 }
 function renderNav(){

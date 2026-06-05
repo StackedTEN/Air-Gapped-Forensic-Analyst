@@ -39,7 +39,7 @@ def list_autoruns(ev: Evidence) -> dict:
     ]
     suspicious = [
         i for i in items
-        if any(p in i["data"].lower() for p in SUSPICIOUS_PATHS) or "-enc" in i["data"].lower()
+        if any(p in (i.get("data") or "").lower() for p in SUSPICIOUS_PATHS) or "-enc" in (i.get("data") or "").lower()
     ]
     return {"count": len(items), "suspicious_count": len(suspicious),
             "items": items, "suspicious": suspicious}
@@ -50,7 +50,8 @@ def query_registry(ev: Evidence, pattern: str) -> dict:
     p = pattern.lower()
     items = [
         r for r in ev.registry
-        if p in r["key"].lower() or p in r["value_name"].lower() or p in r["value_data"].lower()
+        if p in (r.get("key") or "").lower() or p in (r.get("value_name") or "").lower()
+        or p in (r.get("value_data") or "").lower()
     ]
     return {"pattern": pattern, "count": len(items), "items": items}
 
@@ -76,9 +77,9 @@ def search_events(
     for x in ev.events:
         if event_id is not None and x["event_id"] != event_id:
             continue
-        if user and user.lower() not in x.get("user", "").lower():
+        if user and user.lower() not in (x.get("user") or "").lower():
             continue
-        if process and process.lower() not in x.get("process", "").lower():
+        if process and process.lower() not in (x.get("process") or "").lower():
             continue
         if contains:
             blob = " ".join(str(v) for v in x.values()).lower()
@@ -167,6 +168,7 @@ def account_changes(ev: Evidence) -> dict:
 
 # --- live-triage tools (populated by a collection package) ---
 def _remote_host(remote: str) -> str:
+    remote = remote or ""  # collected rows may carry a null remote
     return remote.rsplit(":", 1)[0] if remote.count(":") == 1 else remote
 
 
@@ -204,7 +206,7 @@ def local_users(ev: Evidence) -> dict:
 
 
 def _suspicious_proc_names(ev: Evidence) -> set:
-    return {p.get("name", "").lower() for p in ev.processes
+    return {(p.get("name") or "").lower() for p in ev.processes
             if p.get("path") and any(s in p["path"].lower() for s in SUSPICIOUS_PATHS)}
 
 
@@ -236,7 +238,7 @@ def powershell_activity(ev: Evidence) -> dict:
              if e.get("event_id") == 4104 or e.get("process") == "powershell.exe"]
     items += [{"ts": p.get("created", ""), "event_id": 0, "process": p.get("name"),
                "detail": p.get("cmdline", "")} for p in ev.processes
-              if p.get("name", "").lower() == "powershell.exe"]
+              if (p.get("name") or "").lower() == "powershell.exe"]
     return {"count": len(items), "items": items}
 
 
@@ -264,11 +266,11 @@ ATTACK_RULES = [
      "tactics": ["Execution"],
      "match": lambda ev: [_e(e) for e in ev.events if e["process"] == "powershell.exe"]
                          + [f"{p.get('name','')} {p.get('cmdline','')}".strip()
-                            for p in ev.processes if p.get("name", "").lower() == "powershell.exe"]},
+                            for p in ev.processes if (p.get("name") or "").lower() == "powershell.exe"]},
     {"id": "T1547.001", "name": "Boot or Logon Autostart: Registry Run Keys",
      "tactics": ["Persistence", "Privilege Escalation"],
      "match": lambda ev: [_r(r) for r in ev.registry if r["category"] == "run"
-                          and any(p in r["value_data"].lower() for p in SUSPICIOUS_PATHS)]},
+                          and any(p in (r.get("value_data") or "").lower() for p in SUSPICIOUS_PATHS)]},
     {"id": "T1543.003", "name": "Create or Modify System Process: Windows Service",
      "tactics": ["Persistence", "Privilege Escalation"],
      "match": lambda ev: [_r(r) for r in ev.registry if r["category"] == "service" and r["value_name"] == "ImagePath"]
@@ -283,7 +285,7 @@ ATTACK_RULES = [
      "tactics": ["Defense Evasion"],
      "match": lambda ev: [_e(e) for e in ev.events
                           if e["process"] == "svchost.exe" and "users\\public" in (e["cmdline"] or "").lower()]
-                         + [_r(r) for r in ev.registry if "windefendsvc" in r["key"].lower() and r["value_name"] == "ImagePath"]
+                         + [_r(r) for r in ev.registry if "windefendsvc" in (r.get("key") or "").lower() and r.get("value_name") == "ImagePath"]
                          + [f"{p.get('name','')} {p.get('path','')}".strip() for p in ev.processes
                             if p.get("path") and any(s in p["path"].lower() for s in SUSPICIOUS_PATHS)]},
     {"id": "T1218.011", "name": "System Binary Proxy Execution: Rundll32",
@@ -291,7 +293,7 @@ ATTACK_RULES = [
      "match": lambda ev: [_e(e) for e in ev.events if e["process"] == "rundll32.exe"]},
     {"id": "T1562.001", "name": "Impair Defenses: Disable or Modify Tools",
      "tactics": ["Defense Evasion"],
-     "match": lambda ev: [_r(r) for r in ev.registry if "defender" in r["key"].lower() and "disable" in r["value_name"].lower()]},
+     "match": lambda ev: [_r(r) for r in ev.registry if "defender" in (r.get("key") or "").lower() and "disable" in (r.get("value_name") or "").lower()]},
     {"id": "T1070.001", "name": "Indicator Removal: Clear Windows Event Logs",
      "tactics": ["Defense Evasion"],
      "match": lambda ev: [_e(e) for e in ev.events if e["event_id"] == 1102]},

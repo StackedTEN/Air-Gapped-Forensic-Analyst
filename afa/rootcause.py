@@ -74,7 +74,7 @@ def _malicious_origin(ev: Evidence):
     """Find the earliest malicious process and its parent (the chain's foothold)."""
     cands = []
     for p in ev.processes:
-        nm, cmd, path = p.get("name", "").lower(), (p.get("cmdline") or "").lower(), (p.get("path") or "").lower()
+        nm, cmd, path = (p.get("name") or "").lower(), (p.get("cmdline") or "").lower(), (p.get("path") or "").lower()
         if (nm == "powershell.exe" and ("-enc" in cmd or "hidden" in cmd)) or \
            any(s in path for s in SUSPICIOUS_PATHS):
             cands.append((p.get("created", ""), nm))
@@ -121,10 +121,10 @@ def extract_iocs(ev: Evidence) -> dict:
     autoruns = list_autoruns(ev)
     for s in autoruns["suspicious"]:
         persistence.append(f"{s['hive']}\\{s['key']} :: {s['value']} = {s['data']}")
-        if any(x in s["data"].lower() for x in SUSPICIOUS_PATHS):
+        if any(x in (s.get("data") or "").lower() for x in SUSPICIOUS_PATHS):
             paths.add(s["data"])
     for a in account_changes(ev)["items"]:
-        accounts.add(a["detail"].split(":")[-1].strip())
+        accounts.add((a.get("detail") or "").split(":")[-1].strip())
     return {"external_ips": ips, "file_hashes": sorted(hashes),
             "suspicious_paths": sorted(paths), "accounts": sorted(accounts),
             "persistence": persistence, "c2": c2}

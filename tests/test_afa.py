@@ -436,3 +436,39 @@ class TestCollectionWarningsSurface:
                       collection_warnings=["Security event log was not collected (run elevated)."])
         recon = build_reconstruction(ev)
         assert any(g.startswith("Collection warning:") and "Security" in g for g in recon["gaps"])
+
+
+class TestNullFieldHardening:
+    """Real collected packages carry JSON null in fields the analyzer lower()/split()s
+    (process, remote, user, path, value_data, name, detail). None of the tools may
+    raise AttributeError on them — the whole class must stay dead."""
+
+    def _null_evidence(self):
+        return Evidence(
+            host_name="DESK-9",
+            events=[{"ts": "2026-01-01T00:00:00Z", "event_id": 4720, "channel": "Security",
+                     "computer": None, "user": None, "process": None, "parent_process": None,
+                     "cmdline": None, "dst_ip": None, "detail": None}],
+            registry=[{"hive": "HKLM", "key": None, "value_name": None, "value_data": None,
+                       "last_write": None, "category": "run"}],
+            processes=[{"pid": 1, "ppid": 0, "name": None, "path": None, "cmdline": None,
+                        "user": None, "created": None, "hash": None}],
+            network=[{"proto": "tcp", "remote": None, "state": "Established", "pid": 1, "process": None}],
+            services=[{"name": None, "path": None}],
+            users=[{"name": None}],
+            programs=[{"name": None, "path": None, "sha1": None}],
+        )
+
+    def test_no_tool_crashes_on_null_collected_fields(self):
+        from afa.tools import query_registry
+        from afa.brief import build_brief
+        ev = self._null_evidence()
+        assert list_autoruns(ev)["suspicious_count"] == 0
+        assert query_registry(ev, "evil")["count"] == 0
+        assert search_events(ev, user="x", process="y")["count"] == 0
+        assert corroborated_c2(ev) == []
+        assert find_indicator(ev, "1.2.3.4")["event_hits"] == 0
+        map_attack(ev)              # must not raise
+        recon = build_reconstruction(ev)
+        assert "gaps" in recon
+        build_brief(ev)             # must not raise

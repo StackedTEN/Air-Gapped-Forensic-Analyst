@@ -23,7 +23,7 @@ def build_brief(ev: Evidence) -> dict:
     attack = map_attack(ev)
     c2 = corroborated_c2(ev)
     powershell = ([e for e in ev.events if e.get("process") == "powershell.exe"]
-                  or [p for p in ev.processes if p.get("name", "").lower() == "powershell.exe"])
+                  or [p for p in ev.processes if (p.get("name") or "").lower() == "powershell.exe"])
 
     key_findings: list[str] = []
     if powershell:
@@ -35,7 +35,7 @@ def build_brief(ev: Evidence) -> dict:
     if tasks["count"]:
         key_findings.append(f"{tasks['count']} scheduled task(s) created for persistence.")
     if accts["count"]:
-        names = ", ".join(a["detail"].split(":")[-1].strip() for a in accts["items"])
+        names = ", ".join((a.get("detail") or "").split(":")[-1].strip() for a in accts["items"])
         key_findings.append(f"Local account(s) created: {names}.")
     if c2:
         ips = sorted({_remote_host(x["endpoint"]) for x in c2})

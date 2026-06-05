@@ -15,7 +15,9 @@ from .brief import build_brief, render_brief
 from .loader import load_evidence
 from .package import load_package, verify_package
 from .rootcause import build_reconstruction
-from .tools import (list_autoruns, map_attack, scheduled_tasks, timeline)
+from .tools import (browser_history, filesystem_timeline, list_autoruns, map_attack,
+                    prefetch_execution, scheduled_tasks, shimcache_entries, timeline,
+                    wmi_persistence)
 
 STATIC = Path(__file__).parent / "static"
 
@@ -34,7 +36,10 @@ def create_app(source: dict | None = None):
             custody = verify_package(source["package"])
             return ev, manifest, {"ok": custody["ok"], "files": custody["files"]}
         ev = load_evidence(source.get("dir"), events_path=source.get("events"),
-                           registry_path=source.get("registry"))
+                           registry_path=source.get("registry"),
+                           prefetch_path=source.get("prefetch"), shimcache_path=source.get("shimcache"),
+                           mft_path=source.get("mft"), browser_path=source.get("browser"),
+                           wmi_path=source.get("wmi"))
         return ev, None, None
 
     @lru_cache(maxsize=1)
@@ -54,6 +59,9 @@ def create_app(source: dict | None = None):
                 "events": len(ev.events), "registry": len(ev.registry),
                 "processes": len(ev.processes), "network": len(ev.network),
                 "users": len(ev.users), "programs": len(ev.programs),
+                "prefetch": len(ev.prefetch), "shimcache": len(ev.shimcache),
+                "filesystem": len(ev.filesystem), "browser": len(ev.browser),
+                "wmi": len(ev.wmi),
             },
             "artifacts": {
                 "processes": ev.processes,
@@ -64,6 +72,11 @@ def create_app(source: dict | None = None):
                 "persistence": autoruns["items"],
                 "tasks": scheduled_tasks(ev)["items"],
                 "events": timeline(ev)["items"],
+                "prefetch": prefetch_execution(ev)["items"],
+                "shimcache": shimcache_entries(ev)["items"],
+                "filesystem": filesystem_timeline(ev)["items"],
+                "browser": browser_history(ev)["items"],
+                "wmi": wmi_persistence(ev)["items"],
             },
         }
 

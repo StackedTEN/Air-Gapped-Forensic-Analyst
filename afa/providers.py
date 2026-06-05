@@ -65,6 +65,8 @@ class OfflinePlanner:
 
         if any(w in ql for w in ("mitre", "att&ck", "technique", "ttp", "tactic", "kill chain")):
             return [("map_attack", {})]
+        if any(w in ql for w in ("wmi", "subscription", "event consumer", "event filter", "consumerbinding")):
+            return [("wmi_persistence", {})]
         if any(w in ql for w in ("process tree", "process chain", "parent process", "spawn", "what spawned")):
             return [("process_tree", {})]
         if any(w in ql for w in ("scheduled task", "schtask", "scheduled")):
@@ -79,7 +81,23 @@ class OfflinePlanner:
             return [("detect_antiforensics", {})]
         if any(w in ql for w in ("scriptblock", "script block", "4104", "decoded", "powershell command")):
             return [("powershell_activity", {})]
+        if any(w in ql for w in ("prefetch", "run count", "how many times", "times executed")):
+            if ev.prefetch:
+                return [("prefetch_execution", {})]
+        if any(w in ql for w in ("shimcache", "appcompat", "amcache present")):
+            if ev.shimcache:
+                return [("shimcache_entries", {})]
+        if any(w in ql for w in ("mft", "file system", "filesystem", "first write", "first written",
+                                 "dropped", "when was", "written to disk", "file timeline")):
+            if ev.filesystem:
+                return [("filesystem_timeline", {})]
+        if any(w in ql for w in ("browser", "download", "chrome", "edge", "firefox", "drive by",
+                                 "drive-by", "url visited", "downloaded")):
+            if ev.browser:
+                return [("browser_history", {})]
         if any(w in ql for w in ("amcache", "shimcache", "program execution", "what ran", "programs")):
+            if ev.shimcache:
+                return [("shimcache_entries", {})]
             if ev.programs:
                 return [("program_execution", {})]
         if any(w in ql for w in ("c2", "command and control", "beacon", "outbound", "network", "connect", "external")):
@@ -186,6 +204,44 @@ class OfflinePlanner:
             elif c.name == "powershell_activity":
                 lines = "; ".join((i.get("detail") or i.get("cmdline") or "")[:90] for i in r["items"][:5])
                 parts.append(f"PowerShell activity ({r['count']}): {lines}.")
+            elif c.name == "prefetch_execution":
+                if r["count"]:
+                    lines = "; ".join(f"{i.get('name','')} ({i.get('run_count','?')}x, last {i.get('last_run','')})"
+                                      for i in r["items"][:6])
+                    extra = f" — {r['suspicious_count']} in user-writable paths" if r["suspicious_count"] else ""
+                    parts.append(f"Prefetch execution ({r['count']}{extra}): {lines}.")
+                else:
+                    parts.append("Prefetch: no execution evidence collected.")
+            elif c.name == "shimcache_entries":
+                if r["count"]:
+                    lines = "; ".join(f"{i.get('path','')}{' (executed)' if i.get('executed') else ''}"
+                                      for i in r["items"][:6])
+                    extra = f" — {r['suspicious_count']} in user-writable paths" if r["suspicious_count"] else ""
+                    parts.append(f"Shimcache/Amcache ({r['count']}{extra}): {lines}.")
+                else:
+                    parts.append("Shimcache/Amcache: no entries collected.")
+            elif c.name == "filesystem_timeline":
+                drop = r.get("earliest_drop")
+                head = (f"Earliest suspicious file write: {drop.get('path','')} at {drop.get('created','')}. "
+                        if drop else "")
+                lines = "; ".join(f"{i.get('created','')} {i.get('path','')}" for i in r["items"][:6])
+                parts.append(f"{head}File-system timeline ({r['count']}): {lines}.")
+            elif c.name == "browser_history":
+                if r["download_count"]:
+                    dls = "; ".join(f"{d.get('url','')} -> {d.get('target_path','')}"
+                                    for d in r["executable_downloads"][:4]) or \
+                          "; ".join(d.get("url", "") for d in r["downloads"][:4])
+                    parts.append(f"Browser: {r['download_count']} download(s), "
+                                 f"{len(r['executable_downloads'])} executable. {dls}.")
+                else:
+                    parts.append(f"Browser history ({r['count']} record(s)): no downloads observed.")
+            elif c.name == "wmi_persistence":
+                if r["count"]:
+                    lines = "; ".join(f"{w.get('filter_name','?')} -> {w.get('consumer_name','?')} "
+                                      f"({w.get('command') or w.get('query','')})" for w in r["items"][:4])
+                    parts.append(f"WMI persistence ({r['count']}, {r['command_consumers']} command-line): {lines}.")
+                else:
+                    parts.append("WMI persistence: no event subscriptions found.")
         return " ".join(parts) if parts else "No tools produced a result."
 
 

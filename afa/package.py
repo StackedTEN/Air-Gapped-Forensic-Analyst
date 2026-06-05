@@ -16,7 +16,8 @@ import zipfile
 from pathlib import Path
 
 from .loader import Evidence
-from .normalize import normalize_events
+from .normalize import (normalize_browser, normalize_events, normalize_mft,
+                        normalize_prefetch, normalize_shimcache, normalize_wmi)
 
 
 def _sha256(path: Path) -> str:
@@ -90,6 +91,11 @@ def load_package(path: str | Path, verify: bool = True) -> tuple[Evidence, dict]
             users=_load_json(root, "users.json"),
             services=_load_json(root, "services.json"),
             programs=_load_json(root, "programs.json"),
+            prefetch=normalize_prefetch(root / "prefetch.json") if (root / "prefetch.json").exists() else [],
+            shimcache=normalize_shimcache(root / "shimcache.json") if (root / "shimcache.json").exists() else [],
+            filesystem=normalize_mft(root / "filesystem.json") if (root / "filesystem.json").exists() else [],
+            browser=normalize_browser(root / "browser.json") if (root / "browser.json").exists() else [],
+            wmi=normalize_wmi(root / "wmi.json") if (root / "wmi.json").exists() else [],
             collection_warnings=list(manifest.get("warnings", []) or []),
             source=str(path),
             host_name=(manifest.get("host", {}) or {}).get("computer", ""),

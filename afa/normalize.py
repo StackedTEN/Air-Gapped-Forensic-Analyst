@@ -207,3 +207,159 @@ def normalize_registry(path: str | Path) -> list[dict]:
         return normalize_reg(text)
     data = json.loads(text)
     return data if isinstance(data, list) else [data]
+
+
+# --------------------------------------------------------------------------
+# deeper forensic sources — each is "one normalizer plus one tool"
+#
+# Every normalizer accepts (a) our native JSON/JSONL rows (pass-through) and
+# (b) the export real analysts actually have on hand (Eric Zimmerman CSVs,
+# BrowsingHistoryView, Autorunsc), auto-detected by column names. The aim is the
+# same as the events/registry path: the tools work on real evidence, not just
+# the sample.
+# --------------------------------------------------------------------------
+def _read_rows(path: str | Path) -> list[dict]:
+    """Read .json (list or single obj), .jsonl, or .csv into a list of dicts."""
+    path = Path(path)
+    text = path.read_text(encoding="utf-8-sig")
+    suf = path.suffix.lower()
+    if suf == ".csv":
+        return [dict(r) for r in csv.DictReader(io.StringIO(text))]
+    if suf == ".jsonl":
+        return [json.loads(l) for l in text.splitlines() if l.strip()]
+    data = json.loads(text)
+    return data if isinstance(data, list) else [data]
+
+
+def _pick(row: dict, aliases: tuple[str, ...], default=""):
+    """First non-empty value among case-insensitive column aliases."""
+    lower = {k.lower().strip(): v for k, v in row.items() if k}
+    return next((lower[a] for a in aliases if a in lower and lower[a] not in (None, "")), default)
+
+
+def _to_int(v, default=0) -> int:
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _suspicious_path(p: str) -> bool:
+    pl = (p or "").lower()
+    return any(s in pl for s in ("\\users\\public\\", "\\windows\\temp\\",
+                                 "\\appdata\\local\\temp\\", "\\appdata\\roaming\\",
+                                 "\\programdata\\", "\\downloads\\"))
+
+
+def normalize_prefetch(path: str | Path) -> list[dict]:
+    """Prefetch execution evidence. Accepts native JSON or PECmd (Zimmerman) CSV."""
+    out = []
+    for r in _read_rows(path):
+        if "run_count" in r and "name" in r:  # native
+            out.append({k: r.get(k, "") for k in
+                        ("name", "path", "run_count", "last_run", "first_run", "prefetch_file")})
+            out[-1]["run_count"] = _to_int(out[-1]["run_count"])
+            continue
+        exe = _pick(r, ("executablename", "name", "exename"))
+        path_val = _pick(r, ("path", "fullpath", "filepath"))
+        out.append({
+            "name": _basename(exe) or exe,
+            "path": path_val,
+            "run_count": _to_int(_pick(r, ("runcount", "run_count", "timesexecuted"))),
+            "last_run": parse_ts(_pick(r, ("lastrun", "last_run", "lastrun0", "lastexecuted"))),
+            "first_run": parse_ts(_pick(r, ("firstrun", "first_run", "sourcecreated", "created"))),
+            "prefetch_file": _pick(r, ("sourcefilename", "prefetch_file", "sourcefile")),
+        })
+    return out
+
+
+def normalize_shimcache(path: str | Path) -> list[dict]:
+    """Amcache/Shimcache (AppCompatCache) presence evidence. Native or Zimmerman CSV."""
+    out = []
+    for i, r in enumerate(_read_rows(path), 1):
+        if "position" in r and ("path" in r or "name" in r):  # native
+            row = {k: r.get(k, "") for k in ("position", "name", "path", "last_modified", "executed", "sha1")}
+            row["position"] = _to_int(row["position"], i)
+            row["executed"] = bool(row.get("executed"))
+            out.append(row)
+            continue
+        path_val = _pick(r, ("path", "fullpath", "filepath", "applicationname"))
+        executed = _pick(r, ("executed", "isexecuted", "execflag"))
+        out.append({
+            "position": _to_int(_pick(r, ("position", "cacheentryposition", "order")), i),
+            "name": _basename(path_val) or _pick(r, ("name", "filename")),
+            "path": path_val,
+            "last_modified": parse_ts(_pick(r, ("lastmodifiedtimeutc", "last_modified",
+                                                "lastmodified", "filekeylastwritetimestamp"))),
+            "executed": str(executed).strip().lower() in ("true", "yes", "1", "executed"),
+            "sha1": _pick(r, ("sha1", "sha1hash", "hash")),
+        })
+    return out
+
+
+def normalize_mft(path: str | Path) -> list[dict]:
+    """File-system timeline ($MFT). Native, MFTECmd CSV, or a generic file listing."""
+    out = []
+    for r in _read_rows(path):
+        if "path" in r and ("created" in r or "modified" in r):  # native
+            out.append({k: r.get(k, "") for k in
+                        ("path", "name", "created", "modified", "mft_modified", "size", "is_directory")})
+            out[-1]["size"] = _to_int(out[-1].get("size"), 0)
+            out[-1]["is_directory"] = bool(out[-1].get("is_directory"))
+            continue
+        parent = _pick(r, ("parentpath", "parent_path"))
+        fname = _pick(r, ("filename", "name", "file"))
+        full = _pick(r, ("path", "fullpath"))
+        if not full and (parent or fname):
+            full = (parent.rstrip("\\") + "\\" + fname) if parent else fname
+        out.append({
+            "path": full,
+            "name": _basename(full) or fname,
+            "created": parse_ts(_pick(r, ("created0x10", "created", "creationtime", "sicreated"))),
+            "modified": parse_ts(_pick(r, ("lastmodified0x10", "modified", "lastwritetime", "simodified"))),
+            "mft_modified": parse_ts(_pick(r, ("lastrecordchange0x10", "mft_modified", "entrymodified"))),
+            "size": _to_int(_pick(r, ("filesize", "size", "length"))),
+            "is_directory": str(_pick(r, ("isdirectory", "is_directory"))).strip().lower() in ("true", "yes", "1"),
+        })
+    return out
+
+
+def normalize_browser(path: str | Path) -> list[dict]:
+    """Browser history + downloads. Native, or BrowsingHistoryView/Hindsight CSV."""
+    out = []
+    for r in _read_rows(path):
+        if "url" in r and "type" in r:  # native
+            out.append({k: r.get(k, "") for k in
+                        ("type", "url", "title", "timestamp", "target_path", "browser")})
+            continue
+        url = _pick(r, ("url", "address"))
+        target = _pick(r, ("target_path", "downloadpath", "savedfile", "filename", "fulltargetpath"))
+        rtype = (_pick(r, ("type", "recordtype")) or ("download" if target else "visit")).lower()
+        out.append({
+            "type": "download" if "download" in rtype or target else "visit",
+            "url": url,
+            "title": _pick(r, ("title", "pagetitle")),
+            "timestamp": parse_ts(_pick(r, ("timestamp", "visittime", "visiteddate",
+                                            "starttime", "datetime", "lastvisiteddate"))),
+            "target_path": target,
+            "browser": _pick(r, ("browser", "source", "webbrowser")),
+        })
+    return out
+
+
+def normalize_wmi(path: str | Path) -> list[dict]:
+    """WMI event-subscription persistence. Native, or Autorunsc/wmi-dump CSV/JSON."""
+    out = []
+    for r in _read_rows(path):
+        if "consumer_type" in r or ("filter_name" in r and "consumer_name" in r):  # native
+            out.append({k: r.get(k, "") for k in
+                        ("filter_name", "consumer_name", "consumer_type", "query", "command")})
+            continue
+        out.append({
+            "filter_name": _pick(r, ("filter_name", "filter", "eventfilter", "name")),
+            "consumer_name": _pick(r, ("consumer_name", "consumer", "eventconsumer")),
+            "consumer_type": _pick(r, ("consumer_type", "consumerclass", "type")) or "CommandLineEventConsumer",
+            "query": _pick(r, ("query", "queryexpression", "wql")),
+            "command": _pick(r, ("command", "commandlinetemplate", "executablepath", "scripttext")),
+        })
+    return out

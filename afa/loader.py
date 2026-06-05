@@ -20,6 +20,12 @@ class Evidence:
     users: list[dict] = field(default_factory=list)
     services: list[dict] = field(default_factory=list)
     programs: list[dict] = field(default_factory=list)
+    # deeper forensic sources (each is one normalizer + one tool)
+    prefetch: list[dict] = field(default_factory=list)      # execution: run counts + times
+    shimcache: list[dict] = field(default_factory=list)     # Amcache/Shimcache presence
+    filesystem: list[dict] = field(default_factory=list)    # $MFT / file-system timeline
+    browser: list[dict] = field(default_factory=list)       # browser history + downloads
+    wmi: list[dict] = field(default_factory=list)           # WMI event-subscription persistence
     collection_warnings: list[str] = field(default_factory=list)
     source: str = ""
     host_name: str = ""
@@ -38,19 +44,36 @@ def load_evidence(
     directory: str | Path | None = None,
     events_path: str | Path | None = None,
     registry_path: str | Path | None = None,
+    prefetch_path: str | Path | None = None,
+    shimcache_path: str | Path | None = None,
+    mft_path: str | Path | None = None,
+    browser_path: str | Path | None = None,
+    wmi_path: str | Path | None = None,
 ) -> Evidence:
     """Load evidence.
 
-    With no arguments, loads the bundled native artifacts. Pass `events_path` /
-    `registry_path` to ingest your own exports (JSON / JSONL / CSV / .reg) — they
-    are auto-detected and normalized into the internal schema.
+    With no arguments, loads the bundled native artifacts. Pass any of the export
+    paths to ingest your own evidence (JSON / JSONL / CSV / .reg, plus the common
+    forensic-tool exports) — they are auto-detected and normalized into the
+    internal schema.
     """
-    if events_path or registry_path:
-        from .normalize import normalize_events, normalize_registry
-        events = normalize_events(events_path) if events_path else []
-        registry = normalize_registry(registry_path) if registry_path else []
-        src = " + ".join(str(p) for p in (events_path, registry_path) if p)
-        return Evidence(registry=registry, events=events, source=src)
+    exports = (events_path, registry_path, prefetch_path, shimcache_path,
+               mft_path, browser_path, wmi_path)
+    if any(exports):
+        from .normalize import (normalize_browser, normalize_events, normalize_mft,
+                                normalize_prefetch, normalize_registry,
+                                normalize_shimcache, normalize_wmi)
+        src = " + ".join(str(p) for p in exports if p)
+        return Evidence(
+            events=normalize_events(events_path) if events_path else [],
+            registry=normalize_registry(registry_path) if registry_path else [],
+            prefetch=normalize_prefetch(prefetch_path) if prefetch_path else [],
+            shimcache=normalize_shimcache(shimcache_path) if shimcache_path else [],
+            filesystem=normalize_mft(mft_path) if mft_path else [],
+            browser=normalize_browser(browser_path) if browser_path else [],
+            wmi=normalize_wmi(wmi_path) if wmi_path else [],
+            source=src,
+        )
 
     d = Path(directory) if directory else DEFAULT_DIR
     registry = json.loads((d / "registry.json").read_text(encoding="utf-8-sig"))

@@ -1,0 +1,26 @@
+[
+  {
+    "type": "visit",
+    "url": "http://intranet.example.test/portal",
+    "title": "Corp Portal",
+    "timestamp": "2026-05-02T08:30:00Z",
+    "target_path": "",
+    "browser": "Chrome"
+  },
+  {
+    "type": "visit",
+    "url": "http://cdn.example-update.test/",
+    "title": "Software Update",
+    "timestamp": "2026-05-02T09:09:40Z",
+    "target_path": "",
+    "browser": "Chrome"
+  },
+  {
+    "type": "download",
+    "url": "http://cdn.example-update.test/svchost.exe",
+    "title": "svchost.exe",
+    "timestamp": "2026-05-02T09:10:00Z",
+    "target_path": "C:\\Users\\jdoe\\Downloads\\svchost.exe",
+    "browser": "Chrome"
+  }
+]

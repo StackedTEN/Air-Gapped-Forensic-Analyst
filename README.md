@@ -40,7 +40,7 @@ read-only live triage   ->   normalized artifacts +     ->   tools · ATT&CK · 
 fleet via WinRM              chain-of-custody
 ```
 
-`collector/Invoke-AfaCollect.ps1` runs on a live Windows host (from USB, PsExec, or WinRM) and gathers the high-value triage artifacts in minutes — processes with command lines, network connections joined to owning processes, autoruns/services/scheduled-tasks, local users and admins, USB history, and recent security/system/PowerShell events. It is **strictly read-only** and **never images the disk** — this is the KAPE-targets / Velociraptor model that actually scales. It writes a **collection package**: normalized artifact files plus a `manifest.json` carrying chain-of-custody (case id, operator, host, collector version, time) and a SHA-256 for every file. For a fleet, `-ComputerName host1,host2` fans the same collection out over WinRM.
+`collector/Invoke-AfaCollect.ps1` runs on a live Windows host (from USB, PsExec, or WinRM) and gathers the high-value triage artifacts in minutes — processes with command lines, network connections joined to owning processes, autoruns/services/scheduled-tasks, local users and admins, USB history, recent security/system/PowerShell events, **WMI event-subscription persistence, prefetch execution evidence, a file-system timeline of user-writable locations, and browser downloads**. It is **strictly read-only** and **never images the disk** — this is the KAPE-targets / Velociraptor model that actually scales. It writes a **collection package**: normalized artifact files plus a `manifest.json` carrying chain-of-custody (case id, operator, host, collector version, time) and a SHA-256 for every file. For a fleet, `-ComputerName host1,host2` fans the same collection out over WinRM.
 
 ```powershell
 # one host, fast triage profile
@@ -83,7 +83,7 @@ python -m afa.cli attack                       # prints the technique table
 python -m afa.cli attack --out attack.html      # ATT&CK matrix as HTML
 ```
 
-On the bundled case it surfaces 11 techniques across 6 tactics — PowerShell execution, Run-key and service persistence, scheduled-task and local-account creation, masquerading, rundll32 proxying, Defender tampering, log clearing, web-protocol C2, and USB exfiltration:
+On the bundled case it surfaces 14 techniques across 6 tactics — PowerShell execution, ingress tool transfer and user execution of a downloaded file, Run-key / service / scheduled-task / WMI-subscription persistence, local-account creation, masquerading, rundll32 proxying, Defender tampering, log clearing, web-protocol C2, and USB exfiltration:
 
 ![MITRE ATT&CK coverage, every cell backed by evidence](examples/attack_matrix.png)
 
@@ -121,7 +121,7 @@ python -m afa.cli attack \
   --registry hive.reg          # reg export (.reg) or JSON
 ```
 
-Supported on ingest: `Get-WinEvent ... | ConvertTo-Json` output, flexible CSV (Sysmon/SIEM column names), native JSON/JSONL for events; `.reg` text exports or JSON for the registry. Worked examples live in `examples/sample-exports/`. The normalizer maps process names, command lines, timestamps (including PowerShell's `/Date(...)/`), and registry categories into the schema the tools expect.
+Supported on ingest: `Get-WinEvent ... | ConvertTo-Json` output, flexible CSV (Sysmon/SIEM column names), native JSON/JSONL for events; `.reg` text exports or JSON for the registry. The deeper sources ingest the exports analysts already have — `--prefetch` (PECmd), `--shimcache` (AppCompatCacheParser / Amcache), `--mft` (MFTECmd), `--browser` (BrowsingHistoryView), and `--wmi` — each auto-detecting JSON/JSONL/CSV by its columns. Worked examples live in `examples/sample-exports/`. The normalizer maps process names, command lines, timestamps (including PowerShell's `/Date(...)/`), and registry categories into the schema the tools expect.
 
 ## The three modes
 
@@ -155,7 +155,7 @@ afa/report.py     terminal output + a standalone HTML investigation report
 afa/cli.py        ask · repl · report · attack · brief · rootcause · verify · gui · tools
 ```
 
-The tools are the substance. They're plain functions over the parsed evidence — `list_autoruns`, `search_events`, `usb_history`, `detect_antiforensics`, `find_indicator`, `timeline`, `process_tree`, `scheduled_tasks`, `account_changes`, `running_processes`, `network_connections`, `local_users`, `program_execution`, `powershell_activity`, and `map_attack` — and they're exposed to the model through the standard tool-calling schema.
+The tools are the substance. They're plain functions over the parsed evidence — `list_autoruns`, `search_events`, `usb_history`, `detect_antiforensics`, `find_indicator`, `timeline`, `process_tree`, `scheduled_tasks`, `account_changes`, `running_processes`, `network_connections`, `local_users`, `program_execution`, `powershell_activity`, `prefetch_execution`, `shimcache_entries`, `filesystem_timeline`, `browser_history`, `wmi_persistence`, and `map_attack` — and they're exposed to the model through the standard tool-calling schema.
 
 ## Extending it
 
@@ -174,7 +174,7 @@ The suite proves the tools find the real persistence, USB, C2, scheduled-task, a
 
 It **is** a working pattern for private, on-host AI-assisted DFIR with provenance, a structural air-gap, and a real collect → verify → analyze pipeline. It does **live triage collection** of high-value volatile and persistence artifacts — deliberately *not* full disk imaging, which is the slow dead-box approach that doesn't scale.
 
-Two honesty notes. The collector (`Invoke-AfaCollect.ps1`) is written to spec for a live Windows host and run there; the Python analysis pipeline — ingest, custody verification, the tools, ATT&CK mapping, the agent-loop orchestration, and the brief — is exercised end-to-end in CI, including against the sample collection package. And it is not a full forensic suite: the bundled artifacts are synthetic (all addresses are RFC 5737 documentation ranges). The artifact set is intentionally triage-focused; deeper sources ($MFT, Amcache/Shimcache, prefetch, browser, WMI persistence) are natural next collectors to add — each is one normalizer plus one tool.
+Two honesty notes. The collector (`Invoke-AfaCollect.ps1`) is written to spec for a live Windows host and run there; the Python analysis pipeline — ingest, custody verification, the tools, ATT&CK mapping, the agent-loop orchestration, and the brief — is exercised end-to-end in CI, including against the sample collection package. And on coverage: the deeper sources the triage set used to omit — $MFT (file-system timeline), Amcache/Shimcache, prefetch, browser, and WMI persistence — are now first-class, each with its own normalizer, tool, and ATT&CK/root-cause integration. A few are collected in a deliberately read-only, no-heavy-parsing way and finished offline: prefetch and a user-writable-directory file-system timeline are captured live; full $MFT and Amcache/Shimcache are parsed offline (MFTECmd / AppCompatCacheParser) and ingested via `--mft` / `--shimcache`; live browser history DBs are locked by the running browser, so triage captures the Downloads folder and full history is ingested from a `--browser` export. The bundled artifacts remain synthetic (all addresses are RFC 5737 / RFC 2606 documentation ranges).
 
 ## License
 

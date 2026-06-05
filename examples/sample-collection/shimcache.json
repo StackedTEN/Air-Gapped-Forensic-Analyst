@@ -1,0 +1,34 @@
+[
+  {
+    "position": 1,
+    "name": "svchost.exe",
+    "path": "C:\\Users\\Public\\svchost.exe",
+    "last_modified": "2026-05-02T09:11:50Z",
+    "executed": true,
+    "sha1": "A94A8FE5CCB19BA61C4C0873D391E987982FBBD3"
+  },
+  {
+    "position": 2,
+    "name": "f.exe",
+    "path": "C:\\Windows\\Temp\\f.exe",
+    "last_modified": "2026-05-02T09:12:50Z",
+    "executed": true,
+    "sha1": "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"
+  },
+  {
+    "position": 3,
+    "name": "rundll32.exe",
+    "path": "C:\\Windows\\System32\\rundll32.exe",
+    "last_modified": "2025-10-14T00:00:00Z",
+    "executed": true,
+    "sha1": ""
+  },
+  {
+    "position": 4,
+    "name": "cmd.exe",
+    "path": "C:\\Windows\\System32\\cmd.exe",
+    "last_modified": "2025-10-14T00:00:00Z",
+    "executed": false,
+    "sha1": ""
+  }
+]

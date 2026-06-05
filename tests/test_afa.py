@@ -303,9 +303,10 @@ class TestRootCause:
         self.recon = build_reconstruction(self.ev)
 
     def test_determines_root_cause_with_confidence(self):
-        assert "explorer.exe" in self.recon["root_cause"]
-        assert "phishing" in self.recon["root_cause"].lower()
-        assert self.recon["root_cause_confidence"] == "medium"  # inferred vector, no email/proxy logs
+        # the browser download + MFT first-write now give a concrete delivery vector
+        assert "download" in self.recon["root_cause"].lower()
+        assert "svchost.exe" in self.recon["root_cause"]
+        assert self.recon["root_cause_confidence"] == "high"  # corroborated across browser/MFT/exec
 
     def test_attack_chain_is_ordered_kill_chain(self):
         phases = [s["phase"] for s in self.recon["chain"]]
@@ -319,13 +320,15 @@ class TestRootCause:
     def test_iocs_extracted_for_pivoting(self):
         io = self.recon["iocs"]
         assert any("203.0.113.45" in c for c in io["c2"])
-        assert io["file_hashes"]                       # hashes from programs.json
+        assert io["file_hashes"]                       # hashes from programs.json + shimcache
         assert "supportadmin" in io["accounts"]
         assert any("Public" in p for p in io["suspicious_paths"])
 
     def test_states_gaps_and_pivots_honestly(self):
-        assert any("inferred" in g.lower() for g in self.recon["gaps"])
-        assert any("$MFT" in g for g in self.recon["gaps"])
+        # at high confidence the inferred-vector caveat drops out, but the cleared
+        # log and the confirmed first-write are still surfaced honestly
+        assert any("cleared" in g.lower() for g in self.recon["gaps"])
+        assert any("confirms the dropper's first write" in g for g in self.recon["gaps"])
         assert any("203.0.113.45" in p for p in self.recon["pivots"])
 
     def test_no_malicious_activity_yields_low_confidence(self):
@@ -364,8 +367,11 @@ class TestGui:
         r = self.c.get("/api/case").json()
         assert r["host"] == "WEB-03"
         assert r["custody"]["ok"] is True
-        assert r["rootcause"]["root_cause_confidence"] == "medium"
+        assert r["rootcause"]["root_cause_confidence"] == "high"
         assert r["counts"]["processes"] == 4 and r["counts"]["programs"] == 2
+        # the deeper sources are surfaced to the console too
+        assert r["counts"]["prefetch"] >= 4 and r["counts"]["wmi"] == 1
+        assert len(r["artifacts"]["browser"]) == 3
 
     def test_ask_endpoint_is_grounded(self):
         a = self.c.post("/api/ask", json={"question": "Is there command-and-control activity?"}).json()
@@ -424,3 +430,152 @@ class TestCollectionWarningsSurface:
                       collection_warnings=["Security event log was not collected (run elevated)."])
         recon = build_reconstruction(ev)
         assert any(g.startswith("Collection warning:") and "Security" in g for g in recon["gaps"])
+
+
+# ============================================================================
+# Deeper forensic sources: $MFT, Amcache/Shimcache, prefetch, browser, WMI.
+# Each is "one normalizer plus one tool"; these prove the tool, the ingest, the
+# ATT&CK mapping, and the root-cause integration for all five.
+# ============================================================================
+from afa.normalize import (normalize_browser, normalize_mft, normalize_prefetch,
+                           normalize_shimcache, normalize_wmi)
+from afa.tools import (browser_history, filesystem_timeline, prefetch_execution,
+                       shimcache_entries, wmi_persistence)
+
+
+class TestDeeperSourceTools:
+    def setup_method(self):
+        self.ev, _ = load_package(PKG)
+
+    def test_prefetch_execution(self):
+        r = prefetch_execution(self.ev)
+        assert r["count"] >= 4
+        svc = next(p for p in r["items"] if p["name"].lower() == "svchost.exe")
+        assert svc["run_count"] == 3
+        assert r["suspicious_count"] == 2          # svchost.exe (Public) + f.exe (Temp)
+
+    def test_shimcache_presence_and_execution(self):
+        r = shimcache_entries(self.ev)
+        assert r["count"] >= 4
+        assert any(s["path"].lower().endswith("public\\svchost.exe") and s["executed"]
+                   for s in r["items"])
+        assert r["suspicious_count"] == 2
+
+    def test_filesystem_timeline_pins_dropper_first_write(self):
+        r = filesystem_timeline(self.ev)
+        assert r["earliest_drop"] is not None
+        assert "svchost.exe" in r["earliest_drop"]["path"].lower()
+        assert r["earliest_drop"]["created"] == "2026-05-02T09:10:05Z"
+
+    def test_filesystem_timeline_window_filters(self):
+        r = filesystem_timeline(self.ev, around="2026-05-02T09:12:00Z", minutes=5)
+        paths = " ".join(i["path"] for i in r["items"])
+        assert "Public\\svchost.exe" in paths and "notes.txt" not in paths
+
+    def test_browser_downloads_flag_executables(self):
+        r = browser_history(self.ev)
+        assert r["count"] == 3 and r["download_count"] == 1
+        assert len(r["executable_downloads"]) == 1
+        assert r["executable_downloads"][0]["url"].endswith("svchost.exe")
+
+    def test_wmi_persistence(self):
+        r = wmi_persistence(self.ev)
+        assert r["count"] == 1 and r["command_consumers"] == 1
+        assert "public\\svchost.exe" in r["items"][0]["command"].lower()
+
+
+class TestNewAttackTechniques:
+    def setup_method(self):
+        self.ev, _ = load_package(PKG)
+        self.techs = {t["id"]: t for t in map_attack(self.ev)["techniques"]}
+
+    def test_wmi_event_subscription_mapped(self):
+        assert "T1546.003" in self.techs and self.techs["T1546.003"]["count"] >= 1
+
+    def test_ingress_tool_transfer_mapped(self):
+        assert "T1105" in self.techs           # browser executable download
+
+    def test_user_execution_malicious_file_mapped(self):
+        assert "T1204.002" in self.techs
+        assert self.techs["T1204.002"]["count"] == 4   # 2 prefetch + 2 shimcache, suspicious paths
+
+    def test_clean_host_has_none_of_the_new_techniques(self):
+        ids = {t["id"] for t in map_attack(Evidence(host_name="CLEAN-2"))["techniques"]}
+        assert not ({"T1546.003", "T1105", "T1204.002"} & ids)
+
+
+class TestRootCauseUsesDeeperSources:
+    def setup_method(self):
+        self.ev, _ = load_package(PKG)
+        self.recon = build_reconstruction(self.ev)
+
+    def test_download_vector_is_high_confidence(self):
+        assert self.recon["root_cause_confidence"] == "high"
+        rc = self.recon["root_cause"].lower()
+        assert "download" in rc and "svchost.exe" in rc
+
+    def test_mft_first_write_named_in_root_cause(self):
+        assert "first written to disk" in self.recon["root_cause"].lower()
+        assert "2026-05-02T09:10:05Z" in self.recon["root_cause"]
+
+    def test_download_url_and_wmi_in_iocs_and_pivots(self):
+        io = self.recon["iocs"]
+        assert any("svchost.exe" in u for u in io["download_urls"])
+        assert any(p.startswith("WMI:") for p in io["persistence"])
+        assert any("WMI subscription" in p for p in self.recon["pivots"])
+        assert any("Block http://cdn.example-update.test" in p for p in self.recon["pivots"])
+
+    def test_collected_mft_flips_the_gap_to_a_confirmation(self):
+        assert any("confirms the dropper's first write" in g for g in self.recon["gaps"])
+        assert not any("No file-system timeline" in g for g in self.recon["gaps"])
+
+
+class TestDeeperSourceIngest:
+    """Real exports from the tools analysts actually use, normalized to the schema."""
+
+    def test_prefetch_from_pecmd_csv(self, tmp_path):
+        p = tmp_path / "pf.csv"
+        p.write_text("ExecutableName,RunCount,LastRun,SourceCreated,SourceFilename\n"
+                     "EVIL.EXE,5,2026-05-02 09:30:00,2026-05-02 09:12:00,EVIL.EXE-1234.pf\n")
+        rows = normalize_prefetch(p)
+        assert rows[0]["name"] == "EVIL.EXE" and rows[0]["run_count"] == 5
+        assert rows[0]["last_run"].startswith("2026-05-02T09:30")
+
+    def test_shimcache_from_appcompatcacheparser_csv(self, tmp_path):
+        p = tmp_path / "sc.csv"
+        p.write_text("CacheEntryPosition,Path,LastModifiedTimeUTC,Executed\n"
+                     "1,C:\\Users\\Public\\x.exe,2026-05-02 09:11:00,True\n")
+        rows = normalize_shimcache(p)
+        assert rows[0]["position"] == 1 and rows[0]["executed"] is True
+        assert rows[0]["name"] == "x.exe"
+
+    def test_mft_from_mftecmd_csv(self, tmp_path):
+        p = tmp_path / "mft.csv"
+        p.write_text("ParentPath,FileName,Created0x10,LastModified0x10,FileSize\n"
+                     "C:\\Users\\Public,x.exe,2026-05-02 09:11:50,2026-05-02 09:11:50,73216\n")
+        rows = normalize_mft(p)
+        assert rows[0]["path"] == "C:\\Users\\Public\\x.exe" and rows[0]["size"] == 73216
+
+    def test_browser_from_browsinghistoryview_csv(self, tmp_path):
+        p = tmp_path / "bh.csv"
+        p.write_text("URL,Title,VisitTime,WebBrowser\n"
+                     "http://x.example.test/,Home,2026-05-02 09:00:00,Chrome\n")
+        rows = normalize_browser(p)
+        assert rows[0]["type"] == "visit" and rows[0]["browser"] == "Chrome"
+
+    def test_wmi_from_generic_json(self, tmp_path):
+        p = tmp_path / "wmi.json"
+        p.write_text(json.dumps([{"filter": "F1", "consumer": "C1",
+                                  "consumerClass": "CommandLineEventConsumer",
+                                  "commandLineTemplate": "evil.exe"}]))
+        rows = normalize_wmi(p)
+        assert rows[0]["filter_name"] == "F1" and rows[0]["command"] == "evil.exe"
+
+    def test_load_evidence_ingests_new_exports(self, tmp_path):
+        pf = tmp_path / "pf.json"
+        pf.write_text(json.dumps([{"name": "evil.exe", "path": "C:\\Users\\Public\\evil.exe",
+                                   "run_count": 2, "last_run": "2026-05-02T09:30:00Z",
+                                   "first_run": "2026-05-02T09:12:00Z", "prefetch_file": ""}]))
+        ev = load_evidence(prefetch_path=pf)
+        assert prefetch_execution(ev)["count"] == 1
+        assert "T1204.002" in {t["id"] for t in map_attack(ev)["techniques"]}

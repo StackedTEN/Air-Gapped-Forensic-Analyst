@@ -1,0 +1,34 @@
+[
+  {
+    "name": "svchost.exe",
+    "path": "C:\\Users\\Public\\svchost.exe",
+    "run_count": 3,
+    "last_run": "2026-05-02T09:30:00Z",
+    "first_run": "2026-05-02T09:12:30Z",
+    "prefetch_file": "SVCHOST.EXE-1A2B3C4D.pf"
+  },
+  {
+    "name": "f.exe",
+    "path": "C:\\Windows\\Temp\\f.exe",
+    "run_count": 1,
+    "last_run": "2026-05-02T09:13:00Z",
+    "first_run": "2026-05-02T09:13:00Z",
+    "prefetch_file": "F.EXE-5E6F7A8B.pf"
+  },
+  {
+    "name": "rundll32.exe",
+    "path": "C:\\Windows\\System32\\rundll32.exe",
+    "run_count": 1,
+    "last_run": "2026-05-02T09:14:00Z",
+    "first_run": "2026-05-02T09:14:00Z",
+    "prefetch_file": "RUNDLL32.EXE-9C0D1E2F.pf"
+  },
+  {
+    "name": "powershell.exe",
+    "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "run_count": 4,
+    "last_run": "2026-05-02T09:12:00Z",
+    "first_run": "2026-04-30T08:00:00Z",
+    "prefetch_file": "POWERSHELL.EXE-AB12CD34.pf"
+  }
+]

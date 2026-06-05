@@ -164,7 +164,9 @@ let CASE=null;
 const VIEWS=[
   ["overview","Root cause"],["attack","ATT&CK matrix"],["processes","Processes"],
   ["network","Network"],["persistence","Persistence"],["events","Events"],
-  ["accounts","Accounts"],["programs","Programs"],["ask","Ask the analyst"]
+  ["accounts","Accounts"],["programs","Programs"],["prefetch","Prefetch"],
+  ["shimcache","Shimcache"],["filesystem","Files ($MFT)"],["browser","Browser"],
+  ["wmi","WMI"],["ask","Ask the analyst"]
 ];
 
 async function boot(){
@@ -190,7 +192,7 @@ function show(id){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.dataset.v===id));
   $("#main").innerHTML=`<div class="view active">${RENDER[id]()}</div>`;
   if(id==="ask") wireAsk();
-  if(["processes","network","persistence","events","accounts","programs"].includes(id)) wireFilter();
+  if(["processes","network","persistence","events","accounts","programs","prefetch","shimcache","filesystem","browser","wmi"].includes(id)) wireFilter();
 }
 
 const RENDER={
@@ -242,6 +244,21 @@ const RENDER={
     r=> /admin/i.test(r.groups||"")?`<span class="tag susp">admin</span>`:""); },
   programs(){ return table("Program execution",CASE.artifacts.programs,
     [["name","Program"],["path","Path"],["sha1","SHA-1"],["first_run","First run"]]); },
+  prefetch(){ return table("Prefetch (execution evidence)",CASE.artifacts.prefetch,
+    [["name","Program"],["run_count","Runs"],["last_run","Last run"],["first_run","First run"],["path","Path"]],
+    r=> /public|temp|appdata|downloads|programdata/i.test(r.path||"")?`<span class="tag susp">suspicious</span>`:""); },
+  shimcache(){ return table("Shimcache / Amcache (presence)",CASE.artifacts.shimcache,
+    [["position","#"],["name","Program"],["path","Path"],["last_modified","Last modified"],["executed","Executed"]],
+    r=> /public|temp|appdata|downloads|programdata/i.test(r.path||"")?`<span class="tag susp">suspicious</span>`:""); },
+  filesystem(){ return table("File-system timeline ($MFT)",CASE.artifacts.filesystem,
+    [["created","Created"],["modified","Modified"],["path","Path"],["size","Size"]],
+    r=> /public|temp|appdata|downloads|programdata/i.test(r.path||"")?`<span class="tag susp">dropped</span>`:""); },
+  browser(){ return table("Browser history & downloads",CASE.artifacts.browser,
+    [["type","Type"],["timestamp","Time"],["browser","Browser"],["url","URL"],["target_path","Saved to"]],
+    r=> r.type==="download"?`<span class="tag ext">download</span>`:""); },
+  wmi(){ return table("WMI event-subscription persistence",CASE.artifacts.wmi,
+    [["filter_name","Filter"],["consumer_name","Consumer"],["consumer_type","Type"],["command","Command / query"]],
+    r=> `<span class="tag susp">persistence</span>`); },
   ask(){
     const sugg=["How did the attacker establish persistence?","Is there command-and-control activity?",
       "Map this incident to MITRE ATT&CK.","What programs ran?","Build a timeline of the compromise."];

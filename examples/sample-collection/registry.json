@@ -1,0 +1,34 @@
+[
+  {
+    "hive": "HKLM",
+    "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "value_name": "Updater",
+    "value_data": "C:\\Users\\Public\\svchost.exe",
+    "last_write": "",
+    "category": "run"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SYSTEM\\CurrentControlSet\\Services\\FakeSvc",
+    "value_name": "ImagePath",
+    "value_data": "C:\\Windows\\Temp\\f.exe",
+    "last_write": "",
+    "category": "service"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SOFTWARE\\Policies\\Microsoft\\Windows Defender",
+    "value_name": "DisableAntiSpyware",
+    "value_data": "1",
+    "last_write": "",
+    "category": "other"
+  },
+  {
+    "hive": "HKLM",
+    "key": "Disk&Ven_SanDisk&Prod_Ultra",
+    "value_name": "FriendlyName",
+    "value_data": "SanDisk Ultra USB Device",
+    "last_write": "",
+    "category": "usbstor"
+  }
+]

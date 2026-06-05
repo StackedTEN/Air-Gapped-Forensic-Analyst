@@ -1,0 +1,21 @@
+[project]
+name = "air-gapped-forensic-analyst"
+version = "0.1.0"
+description = "A local-LLM DFIR agent grounded in deterministic forensic tools. Evidence never leaves the host."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["typer>=0.12", "rich>=13.0", "requests>=2.31", "fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.scripts]
+afa = "afa.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["afa"]
+
+[tool.setuptools.package-data]
+afa = ["static/*.html"]

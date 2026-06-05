@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Investigation — WEB-03</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Spline+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#15110d; --ink2:#1d1712; --line:#382e25; --paper:#efe6d8; --muted:#9b8f7e;
+    --faint:#6f6453; --ember:#e0603a; --gold:#e0a838; --teal:#46c08e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(900px 500px at 82% -10%, rgba(70,192,142,.08), transparent 60%), var(--ink);
+    color:var(--paper); font-family:"Spline Sans",sans-serif; line-height:1.55; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:920px; margin:0 auto; padding:46px 24px 80px; }
+  .kicker { font-family:"JetBrains Mono",monospace; font-size:12px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--ember); margin:0 0 10px; }
+  h1 { font-family:"Fraunces",serif; font-weight:600; font-size:clamp(28px,5vw,44px);
+    line-height:1.04; margin:0 0 8px; letter-spacing:-.01em; }
+  .sub { color:var(--muted); max-width:62ch; margin:0 0 22px; }
+  .meta { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:36px; }
+  .badge { font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.06em;
+    padding:6px 12px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .badge.ok { color:var(--teal); border-color:rgba(70,192,142,.4); background:rgba(70,192,142,.07); }
+  .badge.warn { color:var(--ember); border-color:rgba(224,96,58,.4); background:rgba(224,96,58,.07); }
+  .qa { border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin-bottom:16px;
+    background:linear-gradient(180deg,var(--ink2),transparent); }
+  .q { font-family:"Fraunces",serif; font-size:19px; font-weight:500; margin-bottom:12px; }
+  .a { color:#ded2c0; margin-bottom:16px; }
+  .prov-label { font-family:"JetBrains Mono",monospace; font-size:10px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--faint); margin-bottom:10px; }
+  .grounded { color:var(--teal); } .ungrounded { color:var(--ember); }
+  .prov { display:flex; flex-direction:column; gap:6px; }
+  .tc { display:grid; grid-template-columns:160px 1fr auto; gap:12px; align-items:baseline;
+    font-family:"JetBrains Mono",monospace; font-size:12px; padding:8px 12px; background:var(--ink);
+    border:1px solid var(--line); border-left:3px solid var(--gold); border-radius:8px; }
+  .tn { color:var(--gold); } .ta { color:var(--muted); word-break:break-word; }
+  .tr { color:var(--teal); white-space:nowrap; }
+  @media (max-width:640px) { .tc { grid-template-columns:1fr; } .tr { white-space:normal; } }
+  .rc-wrap { margin-bottom:30px; }
+  .rc-callout { border:1px solid rgba(224,96,58,.35); background:rgba(224,96,58,.08);
+    border-radius:14px; padding:18px 22px; margin-bottom:22px; }
+  .rc-label { font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ember); font-weight:700; }
+  .rc-conf { float:right; font-family:"JetBrains Mono",monospace; font-size:10px; padding:2px 9px;
+    border-radius:20px; text-transform:uppercase; letter-spacing:.06em; }
+  .rc-high { background:rgba(220,80,60,.25); color:#f2b8a8; }
+  .rc-medium { background:rgba(214,167,75,.22); color:#e6cf9a; }
+  .rc-low { background:rgba(140,140,140,.2); color:#cfcfcf; }
+  .rc-text { font-family:"Fraunces",serif; font-size:19px; line-height:1.45; margin:10px 0 0; color:#f0e6d6; }
+  .rc-h { font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 14px; }
+  .chain { margin-bottom:24px; }
+  .step { display:flex; gap:14px; align-items:flex-start; padding-bottom:14px; position:relative; }
+  .step:not(:last-child)::before { content:""; position:absolute; left:13px; top:28px; bottom:0;
+    width:2px; background:var(--line); }
+  .step-dot { flex:0 0 28px; height:28px; border-radius:50%; background:var(--ember); color:#1a120c;
+    font-family:"JetBrains Mono",monospace; font-weight:700; font-size:13px; display:flex;
+    align-items:center; justify-content:center; z-index:1; }
+  .step-head { font-family:"Fraunces",serif; font-size:17px; color:#ede1cf; }
+  .step-ts { font-family:"JetBrains Mono",monospace; font-size:11px; color:var(--faint); margin-left:10px; }
+  .chips { margin-top:6px; }
+  .chip { display:inline-block; font-family:"JetBrains Mono",monospace; font-size:10.5px;
+    color:var(--ember); border:1px solid rgba(224,96,58,.3); border-radius:6px; padding:2px 7px; margin:3px 5px 0 0; }
+  .rc-cols { display:flex; flex-wrap:wrap; gap:22px; }
+  .rc-col { flex:1 1 300px; }
+  .rc-col h4 { font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 10px; }
+  .ioc-row { display:flex; gap:10px; padding:6px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+  .ioc-k { flex:0 0 70px; color:var(--ember); font-family:"JetBrains Mono",monospace; font-size:11px; }
+  .ioc-v { color:#d8ccba; word-break:break-word; }
+  .rc-list { margin:0; padding-left:18px; color:#cdc1b0; font-size:12.5px; line-height:1.6; }
+  .brief-wrap { border:1px solid var(--line); border-left:3px solid var(--ember); border-radius:14px;
+    padding:20px 24px; margin-bottom:30px; background:linear-gradient(180deg,var(--ink2),transparent); }
+  .brief-wrap h2 { font-family:"Fraunces",serif; font-weight:500; font-size:22px; margin:0 0 4px; }
+  .brief-tag { font-family:"JetBrains Mono",monospace; font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--faint); }
+  pre.brief { font-family:"JetBrains Mono",monospace; font-size:12.5px; line-height:1.6; color:#ded2c0;
+    white-space:pre-wrap; word-break:break-word; margin:12px 0 0; }
+  .attack-wrap { margin-bottom:32px; }
+  .attack-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+  .attack-head h2 { font-family:"Fraunces",serif; font-weight:500; font-size:22px; margin:0; }
+  .attack-meta { font-family:"JetBrains Mono",monospace; font-size:11px; color:var(--faint); }
+  .matrix { display:flex; flex-wrap:wrap; gap:10px; }
+  .tcol { flex:1 1 140px; min-width:140px; }
+  .tcol h4 { font-family:"JetBrains Mono",monospace; font-size:10px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 8px; padding-bottom:8px;
+    border-bottom:1px solid var(--line); }
+  .cell { background:rgba(224,96,58,.08); border:1px solid rgba(224,96,58,.28); border-radius:8px;
+    padding:9px 11px; margin-bottom:8px; }
+  .cell .tid { display:block; font-family:"JetBrains Mono",monospace; font-size:12px; font-weight:600;
+    color:var(--ember); }
+  .cell .tname { display:block; font-size:11px; color:#d8ccba; margin-top:3px; line-height:1.3; }
+  .cell .cnt { font-family:"JetBrains Mono",monospace; font-size:10px; color:var(--faint); }
+  footer { margin-top:44px; color:var(--faint); font-size:12px; font-family:"JetBrains Mono",monospace; }
+</style></head>
+<body><div class="wrap">
+  <p class="kicker">Judgment in the loop · local LLM</p>
+  <h1>Investigation — WEB-03</h1>
+  <p class="sub">An AI analyst answered each question by calling deterministic forensic tools.
+  Every claim is traceable to a tool result below — the model orchestrates, the evidence decides.</p>
+  <div class="meta">
+    <span class="badge ok">air-gapped · no egress</span>
+    <span class="badge">provider · offline-planner</span>
+    <span class="badge">8 events · 4 registry rows</span>
+  </div>
+  <section class="rc-wrap"><div class="rc-callout"><span class="rc-label">Root cause</span><span class="rc-conf rc-medium">medium confidence</span><p class="rc-text">Most likely root cause: an interactive user session — phishing or hands-on-keyboard. The earliest malicious activity was powershell.exe at 2026-05-02T09:12:00Z, launched by explorer.exe.</p></div><h3 class="rc-h">Attack chain</h3><div class="chain"><div class="step"><div class="step-dot">1</div><div class="step-body"><div class="step-head">Code execution<span class="step-ts">2026-05-02T09:12:00Z</span></div><div class="chips"><span class=chip>T1059.001</span><span class=chip>T1053.005</span></div></div></div><div class="step"><div class="step-dot">2</div><div class="step-body"><div class="step-head">Persistence established<span class="step-ts">2026-05-02T09:13:00Z</span></div><div class="chips"><span class=chip>T1547.001</span><span class=chip>T1543.003</span><span class=chip>T1136.001</span></div></div></div><div class="step"><div class="step-dot">3</div><div class="step-body"><div class="step-head">Defense evasion<span class="step-ts">2026-05-02T09:14:00Z</span></div><div class="chips"><span class=chip>T1036.005</span><span class=chip>T1218.011</span><span class=chip>T1562.001</span><span class=chip>T1070.001</span></div></div></div><div class="step"><div class="step-dot">4</div><div class="step-body"><div class="step-head">Command-and-control<span class="step-ts"></span></div><div class="chips"><span class=chip>T1071.001</span></div></div></div><div class="step"><div class="step-dot">5</div><div class="step-body"><div class="step-head">Exfiltration<span class="step-ts">2026-05-02T09:25:00Z</span></div><div class="chips"><span class=chip>T1052.001</span></div></div></div></div><div class="rc-cols"><div class="rc-col"><h4>Indicators to pivot on</h4><div class="iocs"><div class="ioc-row"><span class="ioc-k">C2</span><span class="ioc-v">203.0.113.45:443</span></div><div class="ioc-row"><span class="ioc-k">Hashes</span><span class="ioc-v">A94A8FE5CCB19BA61C4C0873D391E987982FBBD3, DA39A3EE5E6B4B0D3255BFEF95601890AFD80709</span></div><div class="ioc-row"><span class="ioc-k">Files</span><span class="ioc-v">C:\Users\Public\svchost.exe, C:\Windows\Temp\f.exe</span></div><div class="ioc-row"><span class="ioc-k">Accounts</span><span class="ioc-v">supportadmin</span></div></div></div><div class="rc-col"><h4>What's missing &amp; next steps</h4><ul class="rc-list"><li>Initial-access vector was inferred from process ancestry; no email-gateway, web-proxy, or EDR telemetry in this collection to confirm it.</li><li>The Security event log was cleared (T1070.001); earlier activity may be missing — correlate with forwarded logs / SIEM to recover the gap.</li><li>C2 was observed as a live socket; pull proxy/DNS/firewall logs to scope the connection&#x27;s duration and any data transferred.</li><li>No file-system timeline ($MFT) was collected; the dropper&#x27;s first-write time is unconfirmed.</li><li>Hunt the fleet for any other host communicating with 203.0.113.45.</li><li>Acquire and analyze the binary at C:\Users\Public\svchost.exe (hash, sandbox detonation, YARA).</li><li>Acquire and analyze the binary at C:\Windows\Temp\f.exe (hash, sandbox detonation, YARA).</li><li>Audit logon history and group membership for account &#x27;supportadmin&#x27; domain-wide.</li><li>Submit collected hashes to threat intel and block at EDR.</li></ul></div></div></section>
+  
+  <section class="attack-wrap"><div class="attack-head"><h2>MITRE ATT&amp;CK</h2><span class="attack-meta">11 techniques · 6 tactics — every cell traceable to evidence</span></div><div class="matrix"><div class="tcol"><h4>Execution</h4><div class="cell"><span class="tid">T1059.001</span><span class="tname">PowerShell</span><span class="cnt">2&times;</span></div><div class="cell"><span class="tid">T1053.005</span><span class="tname">Scheduled Task</span><span class="cnt">1&times;</span></div></div><div class="tcol"><h4>Persistence</h4><div class="cell"><span class="tid">T1547.001</span><span class="tname">Registry Run Keys</span><span class="cnt">1&times;</span></div><div class="cell"><span class="tid">T1543.003</span><span class="tname">Windows Service</span><span class="cnt">2&times;</span></div><div class="cell"><span class="tid">T1053.005</span><span class="tname">Scheduled Task</span><span class="cnt">1&times;</span></div><div class="cell"><span class="tid">T1136.001</span><span class="tname">Local Account</span><span class="cnt">1&times;</span></div></div><div class="tcol"><h4>Privilege Escalation</h4><div class="cell"><span class="tid">T1547.001</span><span class="tname">Registry Run Keys</span><span class="cnt">1&times;</span></div><div class="cell"><span class="tid">T1543.003</span><span class="tname">Windows Service</span><span class="cnt">2&times;</span></div><div class="cell"><span class="tid">T1053.005</span><span class="tname">Scheduled Task</span><span class="cnt">1&times;</span></div></div><div class="tcol"><h4>Defense Evasion</h4><div class="cell"><span class="tid">T1036.005</span><span class="tname">Match Legitimate Name or Location</span><span class="cnt">1&times;</span></div><div class="cell"><span class="tid">T1218.011</span><span class="tname">Rundll32</span><span class="cnt">1&times;</span></div><div class="cell"><span class="tid">T1562.001</span><span class="tname">Disable or Modify Tools</span><span class="cnt">1&times;</span></div><div class="cell"><span class="tid">T1070.001</span><span class="tname">Clear Windows Event Logs</span><span class="cnt">1&times;</span></div></div><div class="tcol"><h4>Command and Control</h4><div class="cell"><span class="tid">T1071.001</span><span class="tname">Web Protocols</span><span class="cnt">1&times;</span></div></div><div class="tcol"><h4>Exfiltration</h4><div class="cell"><span class="tid">T1052.001</span><span class="tname">USB</span><span class="cnt">2&times;</span></div></div></div></section>
+  
+      <section class="qa">
+        <div class="q">How did the attacker establish persistence on this host?</div>
+        <div class="a">Persistence: 2 suspicious autorun(s) of 2 total. Notable: Updater -&gt; C:\Users\Public\svchost.exe; ImagePath -&gt; C:\Windows\Temp\f.exe.</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">list_autoruns</span><span class="ta">—</span><span class="tr">2 result(s), 2 suspicious</span></div></div>
+      </section>
+      <section class="qa">
+        <div class="q">What suspicious processes were executed?</div>
+        <div class="a">Matching events (2): 2026-05-02T09:12:00Z powershell.exe powershell -nop -w hidden -enc SQBFAFgA [encoded PowerShell]; 2026-05-02T09:14:00Z rundll32.exe [proxied execution].</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">search_events</span><span class="ta">event_id=4688</span><span class="tr">2 result(s)</span></div></div>
+      </section>
+      <section class="qa">
+        <div class="q">Was any external/removable storage device connected?</div>
+        <div class="a">Removable storage: 1 USBSTOR record(s). Device(s): SanDisk Ultra USB Device.</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">usb_history</span><span class="ta">—</span><span class="tr">1 result(s)</span></div></div>
+      </section>
+      <section class="qa">
+        <div class="q">Is there evidence of command-and-control network activity?</div>
+        <div class="a">External network connections (1): svchost.exe -&gt; 203.0.113.45:443 (Established).</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">network_connections</span><span class="ta">external_only=True</span><span class="tr">1 result(s)</span></div></div>
+      </section>
+      <section class="qa">
+        <div class="q">Did the attacker take steps to cover their tracks?</div>
+        <div class="a">Anti-forensics: yes — 2026-05-02T09:40:00Z (event 1102). Event ID 1102 indicates the Security audit log was cleared.</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">detect_antiforensics</span><span class="ta">—</span><span class="tr">1 result(s)</span></div></div>
+      </section>
+      <section class="qa">
+        <div class="q">Build a timeline of the compromise.</div>
+        <div class="a">Timeline (8 events): 09:12 powershell.exe -&gt; 09:12 evt4104 -&gt; 09:13 evt7045 -&gt; 09:14 rundll32.exe -&gt; 09:16 evt4720 -&gt; 09:18 evt4698 -&gt; 09:25 evt6416 -&gt; 09:40 evt1102.</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">timeline</span><span class="ta">—</span><span class="tr">8 result(s)</span></div></div>
+      </section>
+      <section class="qa">
+        <div class="q">Map this incident to MITRE ATT&amp;CK.</div>
+        <div class="a">Mapped 11 ATT&amp;CK technique(s) across 6 tactic(s): T1059.001 Command and Scripting Interpreter: PowerShell (Execution); T1547.001 Boot or Logon Autostart: Registry Run Keys (Persistence/Privilege Escalation); T1543.003 Create or Modify System Process: Windows Service (Persistence/Privilege Escalation); T1053.005 Scheduled Task/Job: Scheduled Task (Execution/Persistence/Privilege Escalation); T1136.001 Create Account: Local Account (Persistence); T1036.005 Masquerading: Match Legitimate Name or Location (Defense Evasion); T1218.011 System Binary Proxy Execution: Rundll32 (Defense Evasion); T1562.001 Impair Defenses: Disable or Modify Tools (Defense Evasion); T1070.001 Indicator Removal: Clear Windows Event Logs (Defense Evasion); T1071.001 Application Layer Protocol: Web Protocols (Command and Control); T1052.001 Exfiltration Over Physical Medium: USB (Exfiltration).</div>
+        <div class="prov-label">provenance · 1 tool call(s) · <span class="grounded">grounded</span></div>
+        <div class="prov"><div class="tc"><span class="tn">map_attack</span><span class="ta">—</span><span class="tr">technique_count=11, tactics_covered=6</span></div></div>
+      </section>
+  <footer>generated 2026-06-05 13:48 UTC &nbsp;·&nbsp; air-gapped-forensic-analyst</footer>
+</div></body></html>

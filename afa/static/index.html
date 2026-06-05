@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Air-Gapped Forensic Analyst</title>
+<style>
+  :root{
+    --ink:#15100b; --ink2:#1d160f; --panel:#221a12; --line:#352a1e;
+    --ember:#e0603a; --ember-soft:rgba(224,96,58,.12); --gold:#d8a64b; --teal:#5fb6a8;
+    --text:#ece2d2; --muted:#a99a85; --faint:#6f6354;
+    --serif:"Iowan Old Style",Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","SF Mono","Consolas",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(900px 500px at 80% -5%,rgba(224,96,58,.10),transparent 60%),
+      radial-gradient(700px 500px at -5% 10%,rgba(95,182,168,.06),transparent 55%),
+      var(--ink);
+    color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  .app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+
+  /* sidebar */
+  aside{border-right:1px solid var(--line);padding:22px 18px;position:sticky;top:0;height:100vh;
+    display:flex;flex-direction:column;gap:18px;background:linear-gradient(180deg,var(--ink2),transparent)}
+  .brand{display:flex;flex-direction:column;gap:2px}
+  .brand .mark{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--ember);font-weight:700}
+  .brand h1{font-family:var(--serif);font-weight:500;font-size:21px;margin:2px 0 0;line-height:1.15}
+  .meta{border:1px solid var(--line);border-radius:12px;padding:12px 13px;background:var(--panel)}
+  .meta .row{display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:12px}
+  .meta .k{color:var(--faint);font-family:var(--mono);font-size:10.5px;letter-spacing:.04em}
+  .meta .v{color:var(--text);text-align:right;word-break:break-word}
+  .custody{margin-top:8px;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;
+    padding:6px 9px;border-radius:8px}
+  .custody.ok{background:rgba(95,182,168,.14);color:#9fe0d3}
+  .custody.bad{background:rgba(224,96,58,.18);color:#f4b3a3}
+  nav{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+  nav button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:9px;
+    color:var(--muted);font-size:13px;transition:background .15s,color .15s}
+  nav button:hover{background:var(--ink2);color:var(--text)}
+  nav button.active{background:var(--ember-soft);color:var(--text)}
+  nav button .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.55}
+  nav button.active .dot{background:var(--ember);opacity:1}
+  .egress{margin-top:auto;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.05em;
+    display:flex;align-items:center;gap:6px}
+  .egress .led{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal)}
+
+  /* main */
+  main{padding:30px 40px 70px;max-width:1100px}
+  .view{display:none;animation:rise .4s ease both}
+  .view.active{display:block}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .vhead{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 18px}
+
+  /* root cause */
+  .callout{border:1px solid rgba(224,96,58,.34);background:var(--ember-soft);border-radius:16px;padding:22px 26px;
+    margin-bottom:26px}
+  .callout .lab{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ember);
+    font-weight:700}
+  .pill{float:right;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+    padding:3px 11px;border-radius:20px}
+  .pill.high{background:rgba(220,80,60,.26);color:#f3b9a9}
+  .pill.medium{background:rgba(214,167,75,.22);color:#e8d29e}
+  .pill.low{background:rgba(150,150,150,.2);color:#d2d2d2}
+  .callout p{font-family:var(--serif);font-size:20px;line-height:1.45;margin:12px 0 0;color:#f3ead9}
+
+  h2.sec{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+    margin:30px 0 14px}
+  /* chain */
+  .step{display:flex;gap:14px;align-items:flex-start;padding-bottom:14px;position:relative}
+  .step:not(:last-child)::before{content:"";position:absolute;left:13px;top:30px;bottom:0;width:2px;background:var(--line)}
+  .step .num{flex:0 0 28px;height:28px;border-radius:50%;background:var(--ember);color:#1a120c;font-family:var(--mono);
+    font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;z-index:1}
+  .step .title{font-family:var(--serif);font-size:17px;color:#efe3d1}
+  .step .ts{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:9px}
+  .chip{display:inline-block;font-family:var(--mono);font-size:10.5px;color:var(--ember);
+    border:1px solid rgba(224,96,58,.32);border-radius:6px;padding:2px 7px;margin:5px 5px 0 0}
+
+  .cols{display:flex;flex-wrap:wrap;gap:24px;margin-top:8px}
+  .col{flex:1 1 320px}
+  .card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--panel)}
+  .card h3{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 11px}
+  .ioc{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  .ioc:last-child{border-bottom:none}
+  .ioc .k{flex:0 0 72px;color:var(--ember);font-family:var(--mono);font-size:11px}
+  .ioc .v{color:#dccfbc;word-break:break-word}
+  ul.list{margin:0;padding-left:18px;color:#cdc1b0;font-size:12.5px;line-height:1.65}
+
+  /* matrix */
+  .matrix{display:flex;flex-wrap:wrap;gap:10px}
+  .tcol{flex:1 1 150px;min-width:150px}
+  .tcol h4{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 9px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .cell{background:var(--ember-soft);border:1px solid rgba(224,96,58,.28);border-radius:8px;padding:9px 11px;margin-bottom:8px}
+  .cell .id{display:block;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ember)}
+  .cell .nm{display:block;font-size:11px;color:#d8ccba;margin-top:3px;line-height:1.3}
+  .cell .ct{font-family:var(--mono);font-size:10px;color:var(--faint)}
+
+  /* tables */
+  .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .filter{flex:1;max-width:340px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:9px 13px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none}
+  .filter:focus{border-color:var(--ember)}
+  .count{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  thead th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--ink)}
+  tbody td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;color:#d8cdbb;
+    font-family:var(--mono);word-break:break-word}
+  tbody tr:hover{background:var(--ink2)}
+  .tag{font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:5px}
+  .tag.ext{background:rgba(224,96,58,.2);color:#f2b3a3}
+  .tag.susp{background:rgba(214,167,75,.2);color:#e8d29e}
+  .tag.ok{background:rgba(95,182,168,.16);color:#9fe0d3}
+
+  /* ask */
+  .ask-box{display:flex;gap:10px;margin-bottom:14px}
+  .ask-box input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 16px;
+    color:var(--text);font-family:var(--sans);font-size:14px;outline:none}
+  .ask-box input:focus{border-color:var(--ember)}
+  .ask-box button{all:unset;cursor:pointer;background:var(--ember);color:#1a120c;font-weight:600;font-size:13px;
+    padding:0 20px;border-radius:11px;font-family:var(--sans)}
+  .ask-box button:active{transform:translateY(1px)}
+  .suggest{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+  .suggest button{all:unset;cursor:pointer;font-size:12px;color:var(--muted);border:1px solid var(--line);
+    border-radius:20px;padding:6px 13px}
+  .suggest button:hover{border-color:var(--ember);color:var(--text)}
+  .answer{border:1px solid var(--line);border-left:3px solid var(--ember);border-radius:12px;padding:16px 18px;
+    margin-bottom:12px;background:var(--panel);animation:rise .3s ease both}
+  .answer .q{font-family:var(--serif);font-size:16px;color:#efe3d1;margin-bottom:8px}
+  .answer .a{color:#ddd1bf;white-space:pre-wrap}
+  .prov{margin-top:11px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .prov .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .loading{color:var(--muted);font-size:13px;padding:10px 0}
+  @media(max-width:820px){.app{grid-template-columns:1fr}aside{position:static;height:auto}main{padding:22px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <span class="mark">AIRGAP · DFIR</span>
+      <h1>Forensic Analyst</h1>
+    </div>
+    <div class="meta" id="meta"></div>
+    <nav id="nav"></nav>
+    <div class="egress"><span class="led"></span> runs locally · no egress</div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const PRIVATE = /^(10\.|192\.168\.|127\.|169\.254\.|0\.0\.0\.0|::1?$|fe80|172\.(1[6-9]|2\d|3[01])\.)/;
+const remoteHost = r => (r||"").split(":").length===2 ? (r||"").split(":")[0] : (r||"");
+const isExternal = r => { const h=remoteHost(r).trim(); return h && !PRIVATE.test(h); };
+
+let CASE=null;
+const VIEWS=[
+  ["overview","Root cause"],["attack","ATT&CK matrix"],["processes","Processes"],
+  ["network","Network"],["persistence","Persistence"],["events","Events"],
+  ["accounts","Accounts"],["programs","Programs"],["ask","Ask the analyst"]
+];
+
+async function boot(){
+  try{ CASE = await (await fetch("/api/case")).json(); }
+  catch(e){ $("#main").innerHTML="<p>Could not load the case.</p>"; return; }
+  renderMeta(); renderNav(); show("overview");
+}
+
+function renderMeta(){
+  const m=CASE.manifest, c=CASE.custody;
+  const rows=[["Host",CASE.host]];
+  if(m){ rows.push(["Case",m.case_id],["Operator",m.operator],["Profile",m.profile]); }
+  let html=rows.map(([k,v])=>`<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("");
+  if(c){ html+=`<div class="custody ${c.ok?"ok":"bad"}">${c.ok?"✓ chain-of-custody verified":"✗ integrity failure"}</div>`; }
+  $("#meta").innerHTML=html;
+}
+function renderNav(){
+  $("#nav").innerHTML=VIEWS.map(([id,label])=>
+    `<button data-v="${id}" onclick="show('${id}')"><span class="dot"></span>${esc(label)}</button>`).join("");
+}
+function show(id){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.dataset.v===id));
+  $("#main").innerHTML=`<div class="view active">${RENDER[id]()}</div>`;
+  if(id==="ask") wireAsk();
+  if(["processes","network","persistence","events","accounts","programs"].includes(id)) wireFilter();
+}
+
+const RENDER={
+  overview(){
+    const rc=CASE.rootcause, io=rc.iocs;
+    const chain=rc.chain.map((s,i)=>`
+      <div class="step"><div class="num">${i+1}</div><div>
+        <div><span class="title">${esc(s.title)}</span><span class="ts">${esc(s.ts)}</span></div>
+        <div>${s.techniques.map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div>
+      </div></div>`).join("");
+    const iocRow=(k,v)=> v&&v.length?`<div class="ioc"><span class="k">${k}</span><span class="v">${esc(v.join(", "))}</span></div>`:"";
+    const iocs=[iocRow("C2",io.c2),iocRow("Hashes",io.file_hashes),iocRow("Files",io.suspicious_paths),
+                iocRow("Accounts",io.accounts),iocRow("Persist",io.persistence)].join("");
+    const next=[...rc.gaps,...rc.pivots].map(x=>`<li>${esc(x)}</li>`).join("");
+    return `<p class="vhead">Overview</p>
+      <div class="callout"><span class="lab">Root cause</span>
+        <span class="pill ${rc.root_cause_confidence}">${rc.root_cause_confidence} confidence</span>
+        <p>${esc(rc.root_cause)}</p></div>
+      <h2 class="sec">Attack chain</h2><div>${chain}</div>
+      <div class="cols">
+        <div class="col"><div class="card"><h3>Indicators to pivot on</h3>${iocs||"<div class='ioc'><span class='v'>none</span></div>"}</div></div>
+        <div class="col"><div class="card"><h3>What's missing & next steps</h3><ul class="list">${next}</ul></div></div>
+      </div>`;
+  },
+  attack(){
+    const a=CASE.attack;
+    const cols=a.tactics.map(t=>{
+      const cells=a.techniques.filter(x=>x.tactics.includes(t)).map(x=>`
+        <div class="cell"><span class="id">${esc(x.id)}</span>
+          <span class="nm">${esc(x.name.split(":").pop().trim())}</span>
+          <span class="ct">${x.count}×</span></div>`).join("");
+      return `<div class="tcol"><h4>${esc(t)}</h4>${cells}</div>`;
+    }).join("");
+    return `<p class="vhead">MITRE ATT&CK — ${a.technique_count} techniques · ${a.tactics_covered} tactics</p>
+      <div class="matrix">${cols}</div>`;
+  },
+  processes(){ return table("Processes",CASE.artifacts.processes,
+    [["name","Process"],["pid","PID"],["user","User"],["path","Image path"],["cmdline","Command line"]]); },
+  network(){ return table("Network connections",CASE.artifacts.network,
+    [["process","Process"],["local","Local"],["remote","Remote"],["state","State"]],
+    r=> isExternal(r.remote)?`<span class="tag ext">external</span>`:""); },
+  persistence(){ return table("Persistence (autoruns & services)",CASE.artifacts.persistence,
+    [["category","Type"],["hive","Hive"],["key","Key"],["value","Value"],["data","Data"]],
+    r=> /public|temp|appdata|-enc/i.test(r.data||"")?`<span class="tag susp">suspicious</span>`:""); },
+  events(){ return table("Event timeline",CASE.artifacts.events,
+    [["ts","Time"],["event_id","ID"],["process","Process"],["detail","Detail"]]); },
+  accounts(){ return table("Local accounts",CASE.artifacts.users,
+    [["name","Account"],["enabled","Enabled"],["groups","Groups"],["last_logon","Last logon"]],
+    r=> /admin/i.test(r.groups||"")?`<span class="tag susp">admin</span>`:""); },
+  programs(){ return table("Program execution",CASE.artifacts.programs,
+    [["name","Program"],["path","Path"],["sha1","SHA-1"],["first_run","First run"]]); },
+  ask(){
+    const sugg=["How did the attacker establish persistence?","Is there command-and-control activity?",
+      "Map this incident to MITRE ATT&CK.","What programs ran?","Build a timeline of the compromise."];
+    return `<p class="vhead">Ask the analyst</p>
+      <div class="ask-box"><input id="q" placeholder="Ask a question about this host…" autocomplete="off">
+        <button onclick="sendAsk()">Ask</button></div>
+      <div class="suggest">${sugg.map(s=>`<button onclick="ask('${esc(s).replace(/'/g,"\\'")}')">${esc(s)}</button>`).join("")}</div>
+      <div id="answers"></div>`;
+  }
+};
+
+function table(title,rows,cols,flag){
+  rows=rows||[];
+  const head=cols.map(([,l])=>`<th>${esc(l)}</th>`).join("")+(flag?"<th></th>":"");
+  const body=rows.map(r=>{
+    const tds=cols.map(([k])=>`<td>${esc(r[k])}</td>`).join("");
+    return `<tr data-s="${esc(JSON.stringify(Object.values(r)).toLowerCase())}">${tds}${flag?`<td>${flag(r)}</td>`:""}</tr>`;
+  }).join("");
+  return `<p class="vhead">${esc(title)}</p>
+    <div class="toolbar"><input class="filter" id="filter" placeholder="Filter…">
+      <span class="count" id="fcount">${rows.length} rows</span></div>
+    <table><thead><tr>${head}</tr></thead><tbody id="tbody">${body}</tbody></table>`;
+}
+function wireFilter(){
+  const f=$("#filter"); if(!f) return;
+  f.addEventListener("input",()=>{
+    const q=f.value.toLowerCase(); let n=0;
+    document.querySelectorAll("#tbody tr").forEach(tr=>{
+      const hit=tr.dataset.s.includes(q); tr.style.display=hit?"":"none"; if(hit)n++;
+    });
+    $("#fcount").textContent=n+" rows";
+  });
+}
+
+function wireAsk(){ const q=$("#q"); if(q) q.addEventListener("keydown",e=>{if(e.key==="Enter")sendAsk();}); }
+function ask(text){ $("#q").value=text; sendAsk(); }
+async function sendAsk(){
+  const q=$("#q").value.trim(); if(!q) return; $("#q").value="";
+  const box=$("#answers");
+  const id="a"+Date.now();
+  box.insertAdjacentHTML("afterbegin",`<div class="answer" id="${id}"><div class="q">${esc(q)}</div><div class="loading">analyzing…</div></div>`);
+  try{
+    const res=await (await fetch("/api/ask",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({question:q})})).json();
+    const prov=res.tool_calls.length?`<div class="prov"><span class="lbl">grounded in</span>${
+      res.tool_calls.map(t=>`<span class="chip">${esc(t.name)}</span>`).join("")}</div>`:"";
+    $("#"+id).innerHTML=`<div class="q">${esc(q)}</div><div class="a">${esc(res.text)}</div>${prov}`;
+  }catch(e){ $("#"+id).querySelector(".loading").textContent="request failed"; }
+}
+
+boot();
+</script>
+</body>
+</html>

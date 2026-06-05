@@ -1,0 +1,8 @@
+[
+  {"Id":4688,"TimeCreated":"2026-05-01T14:00:00Z","MachineName":"WIN-LAB-02","LogName":"Security",
+   "Message":"A new process has been created.\nCreator Process Name: C:\\Windows\\explorer.exe\nNew Process Name: C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\nProcess Command Line: powershell -nop -enc ZQBjAGgAbwA=\nAccount Name: labuser"},
+  {"Id":4720,"TimeCreated":"2026-05-01T14:10:00Z","MachineName":"WIN-LAB-02","LogName":"Security",
+   "Message":"A user account was created.\nAccount Name: backdoor"},
+  {"Id":1102,"TimeCreated":"2026-05-01T14:20:00Z","MachineName":"WIN-LAB-02","LogName":"Security",
+   "Message":"The audit log was cleared."}
+]

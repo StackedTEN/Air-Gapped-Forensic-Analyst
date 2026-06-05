@@ -1,0 +1,74 @@
+[
+  {
+    "hive": "HKCU",
+    "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "value_name": "OneDrive",
+    "value_data": "C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe /background",
+    "last_write": "2026-01-03T08:00:00Z",
+    "category": "run"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "value_name": "SecurityHealth",
+    "value_data": "%windir%\\system32\\SecurityHealthSystray.exe",
+    "last_write": "2025-11-20T00:00:00Z",
+    "category": "run"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "value_name": "Updater",
+    "value_data": "C:\\Users\\Public\\svchost.exe",
+    "last_write": "2026-04-14T09:31:00Z",
+    "category": "run"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SYSTEM\\CurrentControlSet\\Services\\WinDefendSvc",
+    "value_name": "ImagePath",
+    "value_data": "C:\\Windows\\Temp\\wds.exe -enc SQBFAFgA",
+    "last_write": "2026-04-14T09:33:00Z",
+    "category": "service"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SYSTEM\\CurrentControlSet\\Services\\WinDefendSvc",
+    "value_name": "Start",
+    "value_data": "2",
+    "last_write": "2026-04-14T09:33:00Z",
+    "category": "service"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SYSTEM\\CurrentControlSet\\Enum\\USBSTOR\\Disk&Ven_SanDisk&Prod_Cruzer_Blade",
+    "value_name": "FriendlyName",
+    "value_data": "SanDisk Cruzer Blade USB Device",
+    "last_write": "2026-04-14T09:40:00Z",
+    "category": "usbstor"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SYSTEM\\CurrentControlSet\\Enum\\USBSTOR\\Disk&Ven_SanDisk&Prod_Cruzer_Blade",
+    "value_name": "SerialNumber",
+    "value_data": "4C530001120607116523",
+    "last_write": "2026-04-14T09:40:00Z",
+    "category": "usbstor"
+  },
+  {
+    "hive": "HKCU",
+    "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs",
+    "value_name": "0",
+    "value_data": "Q1-budget.xlsx",
+    "last_write": "2026-04-14T08:50:00Z",
+    "category": "other"
+  },
+  {
+    "hive": "HKLM",
+    "key": "SOFTWARE\\Policies\\Microsoft\\Windows Defender",
+    "value_name": "DisableAntiSpyware",
+    "value_data": "1",
+    "last_write": "2026-04-14T09:34:00Z",
+    "category": "other"
+  }
+]

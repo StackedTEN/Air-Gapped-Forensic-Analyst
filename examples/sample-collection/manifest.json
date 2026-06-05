@@ -1,0 +1,51 @@
+{
+  "case_id": "IR-2026-031",
+  "operator": "T.Nelson",
+  "collector_version": "1.0.0",
+  "profile": "quick",
+  "host": {
+    "computer": "WEB-03",
+    "os": "Windows Server 2022",
+    "boot_time": "2026-05-01T22:00:00Z",
+    "current_user": "WEB-03\\jdoe",
+    "collected_at": "2026-05-02T10:05:00Z"
+  },
+  "collected_at": "2026-05-02T10:05:00Z",
+  "files": [
+    {
+      "name": "events.json",
+      "sha256": "91D79AECFAFF724FD38CE5752D32F5A2F7DCE27C70B53E5426F397DEE8735E06",
+      "count": 8
+    },
+    {
+      "name": "registry.json",
+      "sha256": "7861F278F847B083C70464101780C74EB2961E6B18DFFFD46F736AA827526893",
+      "count": 4
+    },
+    {
+      "name": "processes.json",
+      "sha256": "CFEA5EA54EABA3958C3A6F6F3C4761AE9F790E6F38BBAFE0795AB64B89CBBA9C",
+      "count": 4
+    },
+    {
+      "name": "network.json",
+      "sha256": "0547ABC82675E7C2FDD2A242AD07DC42A8DA53BF2368DE61146980AF724EE1E8",
+      "count": 2
+    },
+    {
+      "name": "users.json",
+      "sha256": "B4DBE3DE61A4EC2BCAF456C6491951811E125507BAA311057672FF7D1732111D",
+      "count": 2
+    },
+    {
+      "name": "services.json",
+      "sha256": "6590AD5CDC40878A5D1276EB61934D0FE8BDEEC45794E1784BFF407D02F5DB68",
+      "count": 1
+    },
+    {
+      "name": "programs.json",
+      "sha256": "A52CED98934AC58DBD2E6E3742881F9D6A7805DB4781DF39FC3204CE65550F14",
+      "count": 2
+    }
+  ]
+}

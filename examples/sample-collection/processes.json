@@ -1,0 +1,42 @@
+[
+  {
+    "pid": 700,
+    "ppid": 660,
+    "name": "explorer.exe",
+    "path": "C:\\Windows\\explorer.exe",
+    "cmdline": "explorer.exe",
+    "user": "WEB-03\\jdoe",
+    "created": "2026-05-02T08:00:00Z",
+    "hash": ""
+  },
+  {
+    "pid": 2104,
+    "ppid": 700,
+    "name": "powershell.exe",
+    "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "cmdline": "powershell -nop -w hidden -enc SQBFAFgA",
+    "user": "WEB-03\\jdoe",
+    "created": "2026-05-02T09:12:00Z",
+    "hash": ""
+  },
+  {
+    "pid": 3320,
+    "ppid": 2104,
+    "name": "svchost.exe",
+    "path": "C:\\Users\\Public\\svchost.exe",
+    "cmdline": "C:\\Users\\Public\\svchost.exe",
+    "user": "WEB-03\\jdoe",
+    "created": "2026-05-02T09:12:30Z",
+    "hash": "9F2A...SHA256"
+  },
+  {
+    "pid": 4480,
+    "ppid": 3320,
+    "name": "rundll32.exe",
+    "path": "C:\\Windows\\System32\\rundll32.exe",
+    "cmdline": "rundll32.exe C:\\Users\\Public\\d.dll,Run",
+    "user": "WEB-03\\jdoe",
+    "created": "2026-05-02T09:14:00Z",
+    "hash": ""
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "proto": "tcp",
+    "local": "10.0.2.40:50112",
+    "remote": "203.0.113.45:443",
+    "state": "Established",
+    "pid": 3320,
+    "process": "svchost.exe"
+  },
+  {
+    "proto": "tcp",
+    "local": "10.0.2.40:50120",
+    "remote": "10.0.0.5:443",
+    "state": "Established",
+    "pid": 980,
+    "process": "chrome.exe"
+  }
+]

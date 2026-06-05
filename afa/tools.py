@@ -220,7 +220,7 @@ def corroborated_c2(ev: Evidence) -> list[dict]:
         if e.get("dst_ip") and _is_external(e["dst_ip"]):
             out.append({"endpoint": e["dst_ip"], "via": e.get("process") or "event"})
     for n in ev.network:
-        if _is_external(_remote_host(n.get("remote", ""))) and n.get("process", "").lower() in susp:
+        if _is_external(_remote_host(n.get("remote", ""))) and (n.get("process") or "").lower() in susp:
             out.append({"endpoint": n.get("remote", ""), "via": n.get("process", "")})
     return out
 

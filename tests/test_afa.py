@@ -417,6 +417,18 @@ class TestC2Precision:
         assert any("203.0.113.45" in c["endpoint"] for c in corroborated_c2(ev))
         assert "T1071.001" in {t["id"] for t in map_attack(ev)["techniques"]}
 
+    def test_null_process_network_row_does_not_crash(self):
+        # The live collector writes "process": null when a connection's owning PID
+        # isn't in the process map (process exited between snapshots, or a system PID).
+        # corroborated_c2/map_attack must tolerate that, not raise AttributeError.
+        ev = Evidence(
+            host_name="DESK-9",
+            network=[{"proto": "tcp", "remote": "203.0.113.45:443", "state": "Established",
+                      "pid": 36996, "process": None}],
+        )
+        assert corroborated_c2(ev) == []  # uncorroborated (no owning process) -> not C2
+        assert "T1071.001" not in {t["id"] for t in map_attack(ev)["techniques"]}
+
 
 class TestCollectionWarningsSurface:
     def test_security_log_warning_becomes_a_gap(self):

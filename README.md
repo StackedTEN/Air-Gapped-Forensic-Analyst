@@ -49,6 +49,8 @@ fleet via WinRM              chain-of-custody
 .\collector\Invoke-AfaCollect.ps1 -ComputerName web-01,db-02 -CaseId IR-2026-014
 ```
 
+The collector is **agentless** — nothing is installed on the target. `-ComputerName` runs the same read-only scriptblock on each host over WinRM (`Invoke-Command`) and writes a separate sealed package per host (`IR-..._<host>_<stamp>.zip`). Remote collection needs WinRM / PowerShell Remoting enabled on the targets and an account with **local administrator** there (elevation is required to read the Security log); it runs in your current Kerberos/NTLM context, and WinRM over HTTPS keeps artifacts encrypted in transit. Each host's package is verified and analyzed on its own.
+
 Then verify custody and analyze — the analyzer refuses to touch a package whose hashes don't match the manifest:
 
 ```bash
@@ -175,6 +177,16 @@ The suite proves the tools find the real persistence, USB, C2, scheduled-task, a
 It **is** a working pattern for private, on-host AI-assisted DFIR with provenance, a structural air-gap, and a real collect → verify → analyze pipeline. It does **live triage collection** of high-value volatile and persistence artifacts — deliberately *not* full disk imaging, which is the slow dead-box approach that doesn't scale.
 
 Two honesty notes. The collector (`Invoke-AfaCollect.ps1`) is written to spec for a live Windows host and run there; the Python analysis pipeline — ingest, custody verification, the tools, ATT&CK mapping, the agent-loop orchestration, and the brief — is exercised end-to-end in CI, including against the sample collection package. And on coverage: the deeper sources the triage set used to omit — $MFT (file-system timeline), Amcache/Shimcache, prefetch, browser, and WMI persistence — are now first-class, each with its own normalizer, tool, and ATT&CK/root-cause integration. A few are collected in a deliberately read-only, no-heavy-parsing way and finished offline: prefetch and a user-writable-directory file-system timeline are captured live; full $MFT and Amcache/Shimcache are parsed offline (MFTECmd / AppCompatCacheParser) and ingested via `--mft` / `--shimcache`; live browser history DBs are locked by the running browser, so triage captures the Downloads folder and full history is ingested from a `--browser` export. The bundled artifacts remain synthetic (all addresses are RFC 5737 / RFC 2606 documentation ranges).
+
+## Roadmap
+
+The next major capability is **cross-host correlation**. Today each host is collected and analyzed as its own package; when an intrusion spans machines (web-01 → db-02 → dc-01) you get a separate root-cause report per host and connect them by hand. v2 ingests a set of packages as one *case* and stitches them into a single picture:
+
+- a unified, host-tagged timeline across every package;
+- a host graph showing lateral movement and shared indicators — the same C2 IP, reused accounts, or matching file hashes linking machines;
+- a campaign-level root cause and ATT&CK rollup, with grounded Q&A across the whole incident.
+
+Most of this is additive: every package is already normalized to one schema, so the **undirected** links (shared C2 / file hash / account across hosts) fall out of data already collected. Drawing the **directed** pivot chain — which host logged into which, and when — needs one small collector enhancement: recording the logon source (IP / workstation / logon type) on 4624/4625 events, which the current triage set omits. The air-gap and grounding guarantees are unchanged — correlation is just more local analysis over packages you've already pulled, every edge traceable to a specific event in a named package.
 
 ## License
 

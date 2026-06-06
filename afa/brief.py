@@ -10,8 +10,10 @@ model can instead be handed the same structure to write the prose (see
 from __future__ import annotations
 
 from .loader import Evidence
-from .tools import (_remote_host, account_changes, corroborated_c2, detect_antiforensics,
-                    list_autoruns, map_attack, scheduled_tasks, search_events, usb_history)
+from .tools import (_remote_host, account_changes, analyze_command_intent, corroborated_c2,
+                    detect_antiforensics, detect_lineage_anomalies, detect_lolbins,
+                    detect_timestomping, filesystem_timeline, list_autoruns, map_attack,
+                    scheduled_tasks, search_events, usb_history)
 
 
 def build_brief(ev: Evidence) -> dict:
@@ -22,6 +24,11 @@ def build_brief(ev: Evidence) -> dict:
     tasks = scheduled_tasks(ev)
     attack = map_attack(ev)
     c2 = corroborated_c2(ev)
+    lolbins = detect_lolbins(ev)
+    intent = analyze_command_intent(ev)
+    lineage = detect_lineage_anomalies(ev)
+    timestomp = detect_timestomping(ev)
+    deleted = filesystem_timeline(ev).get("deleted_suspicious", [])
     powershell = ([e for e in ev.events if e.get("process") == "powershell.exe"]
                   or [p for p in ev.processes if (p.get("name") or "").lower() == "powershell.exe"])
 
@@ -29,6 +36,16 @@ def build_brief(ev: Evidence) -> dict:
     if powershell:
         ts = powershell[0].get("ts") or powershell[0].get("created", "")
         key_findings.append(f"Initial execution via encoded PowerShell at {ts}.")
+    if lolbins["count"]:
+        key_findings.append(f"Living-off-the-land binary abuse: {', '.join(lolbins['binaries'])} "
+                            f"({lolbins['count']} command(s)).")
+    decoded = [i for i in intent["items"] if i["decoded"] or i["obfuscated"]]
+    if decoded:
+        key_findings.append(f"Obfuscated/fileless execution: {len(decoded)} command(s) flagged "
+                            f"({intent['decoded_count']} base64-decoded).")
+    if lineage["count"]:
+        key_findings.append("Anomalous process lineage: " +
+                            "; ".join(i["reason"] for i in lineage["items"][:2]) + ".")
     if autoruns["suspicious_count"]:
         key_findings.append(f"{autoruns['suspicious_count']} suspicious persistence mechanism(s) "
                             "(Run key / service).")
@@ -43,7 +60,14 @@ def build_brief(ev: Evidence) -> dict:
     if usb["count"]:
         key_findings.append("Removable USB storage attached — potential exfiltration vector.")
     if anti["count"]:
-        key_findings.append("Anti-forensics: the Security audit log was cleared (event 1102).")
+        labels = "; ".join(sorted({i["label"] for i in anti["items"]}))
+        key_findings.append(f"Anti-forensics: {labels}.")
+    if timestomp["count"]:
+        key_findings.append(f"Timestomping detected on {timestomp['count']} file(s) "
+                            "(SI vs FN $MFT timestamps disagree).")
+    if deleted:
+        key_findings.append(f"{len(deleted)} deleted file record(s) for suspect binaries recovered "
+                            "from $MFT (InUse=false).")
 
     # severity heuristic from breadth of activity
     tactics = attack["tactics_covered"]

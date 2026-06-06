@@ -15,9 +15,10 @@ from .brief import build_brief, render_brief
 from .loader import load_evidence
 from .package import load_package, verify_package
 from .rootcause import build_reconstruction
-from .tools import (browser_history, filesystem_timeline, list_autoruns, map_attack,
-                    prefetch_execution, scheduled_tasks, shimcache_entries, timeline,
-                    wmi_persistence)
+from .tools import (analyze_command_intent, browser_history, detect_antiforensics,
+                    detect_lineage_anomalies, detect_lolbins, detect_timestomping,
+                    filesystem_timeline, list_autoruns, map_attack, prefetch_execution,
+                    scheduled_tasks, shimcache_entries, timeline, wmi_persistence)
 
 STATIC = Path(__file__).parent / "static"
 
@@ -77,6 +78,11 @@ def create_app(source: dict | None = None):
                 "filesystem": filesystem_timeline(ev)["items"],
                 "browser": browser_history(ev)["items"],
                 "wmi": wmi_persistence(ev)["items"],
+                "lolbins": detect_lolbins(ev)["items"],
+                "command_intent": analyze_command_intent(ev)["items"],
+                "lineage": detect_lineage_anomalies(ev)["items"],
+                "antiforensics": detect_antiforensics(ev)["items"],
+                "timestomp": detect_timestomping(ev)["items"],
             },
         }
 

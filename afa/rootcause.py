@@ -14,12 +14,14 @@ import re
 
 from .loader import Evidence
 from .tools import (SUSPICIOUS_PATHS, TACTIC_ORDER, _is_external, _is_suspicious_path,
-                    _remote_host, _suspicious_proc_names, account_changes, browser_history,
-                    corroborated_c2, detect_antiforensics, filesystem_timeline,
-                    list_autoruns, map_attack, prefetch_execution, shimcache_entries,
-                    wmi_persistence)
+                    _remote_host, _suspicious_proc_names, account_changes, analyze_command_intent,
+                    browser_history, corroborated_c2, detect_antiforensics,
+                    detect_lineage_anomalies, detect_lolbins, detect_timestomping,
+                    filesystem_timeline, list_autoruns, map_attack, prefetch_execution,
+                    shimcache_entries, wmi_persistence)
 
 _ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+_URL_RE = re.compile(r"(?:https?|ftp)://[^\s'\"\)\]]+", re.I)
 
 # What a malicious process's parent tells us about the initial-access vector.
 INITIATOR_VECTOR = {
@@ -195,10 +197,21 @@ def extract_iocs(ev: Evidence) -> dict:
                            f"({w.get('command') or w.get('query','')})")
     for a in account_changes(ev)["items"]:
         accounts.add((a.get("detail") or "").split(":")[-1].strip())
-    download_urls = sorted({d.get("url", "") for d in browser_history(ev)["executable_downloads"] if d.get("url")})
+    # deleted dropper records ($MFT InUse=false) in user-writable paths are IOCs too
+    for d in filesystem_timeline(ev).get("deleted_suspicious", []):
+        if d.get("path"):
+            paths.add(d["path"])
+    # download cradles (LOLBin + decoded PowerShell) carry their own URLs
+    download_urls = {d.get("url", "") for d in browser_history(ev)["executable_downloads"] if d.get("url")}
+    for i in detect_lolbins(ev)["items"]:
+        download_urls.update(_URL_RE.findall(i.get("command") or ""))
+    for i in analyze_command_intent(ev)["items"]:
+        if "download_cradle" in i.get("intent", []):
+            download_urls.update(_URL_RE.findall((i.get("command") or "") + " " + (i.get("decoded") or "")))
     return {"external_ips": ips, "file_hashes": sorted(hashes),
             "suspicious_paths": sorted(paths), "accounts": sorted(accounts),
-            "persistence": persistence, "c2": c2, "download_urls": download_urls}
+            "persistence": persistence, "c2": c2,
+            "download_urls": sorted(u for u in download_urls if u)}
 
 
 def _gaps(ev: Evidence, iocs: dict, rc_conf: str) -> list[str]:
@@ -212,9 +225,28 @@ def _gaps(ev: Evidence, iocs: dict, rc_conf: str) -> list[str]:
     if iocs["suspicious_paths"] and not iocs["file_hashes"]:
         gaps.append("Suspect binaries were not hashed — re-run the collector with -Profile full "
                     "to enable SHA-256 hashing for malware analysis and threat-intel pivoting.")
-    if detect_antiforensics(ev)["count"]:
-        gaps.append("The Security event log was cleared (T1070.001); earlier activity may be missing — "
-                    "correlate with forwarded logs / SIEM to recover the gap.")
+    anti = detect_antiforensics(ev)
+    if anti["log_clear_count"]:
+        # blind-spot quantification: name the clear time(s); events before are gone on-host
+        for bs in anti["blind_spots"]:
+            gaps.append(f"Visibility gap: {bs['note']}")
+    if any("T1490" in i["techniques"] for i in anti["items"]):
+        gaps.append("Volume Shadow Copies were deleted (T1490); on-host point-in-time recovery and "
+                    "$MFT/$LogFile carving from snapshots are no longer available.")
+    if any("T1070" == i["technique"] or "T1070" in i["techniques"] for i in anti["items"]
+           if "usn" in (i.get("label", "").lower())):
+        gaps.append("The USN change journal was deleted (T1070); recent file create/rename/delete "
+                    "history is unrecoverable from the journal — rely on $MFT and forwarded telemetry.")
+    ts_stomp = detect_timestomping(ev)
+    if ts_stomp["count"]:
+        names = ", ".join(t["path"] for t in ts_stomp["items"][:3])
+        gaps.append(f"Timestomping detected (T1070.006) on: {names} — SI vs FN $MFT timestamps "
+                    "disagree, so on-disk MAC times are unreliable; pivot on FN (0x30) times instead.")
+    deleted = filesystem_timeline(ev).get("deleted_suspicious", [])
+    if deleted:
+        names = ", ".join(d.get("path", "") for d in deleted[:3])
+        gaps.append(f"Deleted $MFT record(s) for suspect file(s) (T1070.004): {names} (InUse=false) — "
+                    "the attacker deleted the dropper; carve resident data from $MFT/$LogFile.")
     if iocs["c2"]:
         gaps.append("C2 was observed as a live socket; pull proxy/DNS/firewall logs to scope the "
                     "connection's duration and any data transferred.")

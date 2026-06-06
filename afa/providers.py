@@ -77,7 +77,24 @@ class OfflinePlanner:
             return [("list_autoruns", {})]
         if any(w in ql for w in ("usb", "removable", "thumb", "external device", "exfil")):
             return [("usb_history", {})]
-        if any(w in ql for w in ("cover", "anti forensic", "antiforensic", "clear", "wipe", "tamper", "track")):
+        if any(w in ql for w in ("lolbin", "lolbas", "living off the land", "living-off-the-land",
+                                 "signed binary", "certutil", "mshta", "regsvr32", "bitsadmin", "squiblydoo")):
+            return [("detect_lolbins", {})]
+        if any(w in ql for w in ("decode", "deobfuscat", "obfuscat", "encoded command", "encodedcommand",
+                                 "base64", "intent", "what does this command", "fileless")):
+            return [("analyze_command_intent", {})]
+        if any(w in ql for w in ("lineage", "anomalous parent", "unusual parent", "spawned a shell",
+                                 "office spawned", "macro", "parent child", "parent-child")):
+            return [("detect_lineage_anomalies", {})]
+        if any(w in ql for w in ("timestomp", "time stomp", "backdat", "timestamp manip", "si vs fn",
+                                 "altered timestamp")):
+            return [("detect_timestomping", {})]
+        if any(w in ql for w in ("deleted file", "deleted record", "deleted dropper", "deleted mft",
+                                 "recover deleted")):
+            if ev.filesystem:
+                return [("filesystem_timeline", {})]
+        if any(w in ql for w in ("vss", "shadow copy", "shadow cop", "usn", "wevtutil", "defender",
+                                 "cover", "anti forensic", "antiforensic", "clear", "wipe", "tamper", "track")):
             return [("detect_antiforensics", {})]
         if any(w in ql for w in ("scriptblock", "script block", "4104", "decoded", "powershell command")):
             return [("powershell_activity", {})]
@@ -136,10 +153,42 @@ class OfflinePlanner:
                     parts.append("Removable storage: no USBSTOR records found.")
             elif c.name == "detect_antiforensics":
                 if r["count"]:
-                    when = "; ".join(f"{i['ts']} (event {i['event_id']})" for i in r["items"])
-                    parts.append(f"Anti-forensics: yes — {when}. {r['note']}")
+                    when = "; ".join(f"{i.get('label','?')} at {i['ts'] or '?'}"
+                                     f"{' (event ' + str(i['event_id']) + ')' if i.get('event_id') else ''}"
+                                     for i in r["items"])
+                    blind = (f" Visibility blind spot: {r['blind_spots'][0]['note']}"
+                             if r.get("blind_spots") else "")
+                    parts.append(f"Anti-forensics: yes — {when}. {r['note']}{blind}")
                 else:
-                    parts.append("Anti-forensics: no log-clearing events found.")
+                    parts.append("Anti-forensics: no track-covering activity found.")
+            elif c.name == "detect_lolbins":
+                if r["count"]:
+                    lines = "; ".join(f"{i['binary']} ({i['label']}) [{', '.join(i['techniques'])}]: "
+                                      f"{i['command'][:80]}" for i in r["items"][:5])
+                    parts.append(f"LOLBin abuse ({r['count']} across {', '.join(r['binaries'])}): {lines}.")
+                else:
+                    parts.append("LOLBin abuse: none of the abused signed binaries were seen.")
+            elif c.name == "analyze_command_intent":
+                if r["count"]:
+                    lines = "; ".join(
+                        (f"[{', '.join(i['intent']) or 'obfuscated'}"
+                         f"{' +' + ', '.join(i['obfuscation']) if i['obfuscation'] else ''}] "
+                         f"{(i['decoded'] or i['command'])[:90]}") for i in r["items"][:5])
+                    parts.append(f"Command intent ({r['count']}, {r['decoded_count']} decoded): {lines}.")
+                else:
+                    parts.append("Command intent: no obfuscated or high-risk commands detected.")
+            elif c.name == "detect_lineage_anomalies":
+                if r["count"]:
+                    lines = "; ".join(f"{i['reason']} [{', '.join(i['techniques'])}]" for i in r["items"][:5])
+                    parts.append(f"Process-lineage anomalies ({r['count']}): {lines}.")
+                else:
+                    parts.append("Process lineage: no anomalous parent/child relationships found.")
+            elif c.name == "detect_timestomping":
+                if r["count"]:
+                    lines = "; ".join(f"{i['path']} — {'; '.join(i['reasons'])}" for i in r["items"][:5])
+                    parts.append(f"Timestomping ({r['count']}): {lines}.")
+                else:
+                    parts.append("Timestomping: no SI/FN ($MFT 0x10 vs 0x30) discrepancies found.")
             elif c.name == "search_events":
                 items = r["items"][:6]
                 if items:
@@ -224,8 +273,12 @@ class OfflinePlanner:
                 drop = r.get("earliest_drop")
                 head = (f"Earliest suspicious file write: {drop.get('path','')} at {drop.get('created','')}. "
                         if drop else "")
-                lines = "; ".join(f"{i.get('created','')} {i.get('path','')}" for i in r["items"][:6])
-                parts.append(f"{head}File-system timeline ({r['count']}): {lines}.")
+                deleted = r.get("deleted_suspicious") or []
+                deltxt = (f" Deleted record(s) for suspect file(s): "
+                          f"{'; '.join(d.get('path','') for d in deleted[:4])}." if deleted else "")
+                lines = "; ".join(f"{i.get('created','')} {i.get('path','')}"
+                                  f"{' (deleted)' if i.get('deleted') else ''}" for i in r["items"][:6])
+                parts.append(f"{head}File-system timeline ({r['count']}): {lines}.{deltxt}")
             elif c.name == "browser_history":
                 if r["download_count"]:
                     dls = "; ".join(f"{d.get('url','')} -> {d.get('target_path','')}"

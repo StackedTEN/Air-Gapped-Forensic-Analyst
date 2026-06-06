@@ -43,5 +43,31 @@
     "mft_modified": "2026-05-02T09:13:40Z",
     "size": 18944,
     "is_directory": false
+  },
+  {
+    "path": "C:\\Windows\\System32\\drivers\\update.sys",
+    "name": "update.sys",
+    "created": "2009-07-14T01:14:24Z",
+    "modified": "2009-07-14T01:14:24Z",
+    "mft_modified": "2026-05-02T09:13:10Z",
+    "fn_created": "2026-05-02T09:13:00Z",
+    "fn_modified": "2026-05-02T09:13:00Z",
+    "fn_record_change": "2026-05-02T09:13:10Z",
+    "size": 24576,
+    "is_directory": false,
+    "deleted": false
+  },
+  {
+    "path": "C:\\Users\\Public\\stage2.exe",
+    "name": "stage2.exe",
+    "created": "2026-05-02T09:15:00Z",
+    "modified": "2026-05-02T09:15:00Z",
+    "mft_modified": "2026-05-02T09:15:30Z",
+    "fn_created": "2026-05-02T09:15:00Z",
+    "fn_modified": "2026-05-02T09:15:00Z",
+    "fn_record_change": "2026-05-02T09:15:30Z",
+    "size": 40960,
+    "is_directory": false,
+    "deleted": true
   }
 ]

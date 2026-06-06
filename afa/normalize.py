@@ -315,29 +315,61 @@ def normalize_shimcache(path: str | Path) -> list[dict]:
     return out
 
 
+def _truthy(v, default: bool = False) -> bool:
+    """Parse a boolean-ish cell ('True'/'yes'/'1'); fall back to `default` when blank."""
+    s = str(v).strip().lower()
+    if s in ("true", "yes", "1"):
+        return True
+    if s in ("false", "no", "0"):
+        return False
+    return default
+
+
 def normalize_mft(path: str | Path) -> list[dict]:
-    """File-system timeline ($MFT). Native, MFTECmd CSV, or a generic file listing."""
+    """File-system timeline ($MFT). Native, MFTECmd CSV, or a generic file listing.
+
+    Carries both the $STANDARD_INFORMATION (0x10) times (created/modified) AND the
+    $FILE_NAME (0x30) times (fn_*) so a timestomp check can compare SI vs FN, plus a
+    `deleted` flag from MFTECmd's InUse column. All four are optional: old packages /
+    generic listings simply leave fn_* empty and `deleted` False, so they still load.
+    """
     out = []
     for r in _read_rows(path):
         if "path" in r and ("created" in r or "modified" in r):  # native
-            out.append({k: r.get(k, "") for k in
-                        ("path", "name", "created", "modified", "mft_modified", "size", "is_directory")})
-            out[-1]["size"] = _to_int(out[-1].get("size"), 0)
-            out[-1]["is_directory"] = bool(out[-1].get("is_directory"))
+            row = {k: r.get(k, "") for k in
+                   ("path", "name", "created", "modified", "mft_modified", "size", "is_directory",
+                    "fn_created", "fn_modified", "fn_record_change")}
+            row["size"] = _to_int(row.get("size"), 0)
+            row["is_directory"] = bool(row.get("is_directory"))
+            # native rows may carry `deleted` directly or `in_use` (deleted = not in_use)
+            if "deleted" in r:
+                row["deleted"] = bool(r.get("deleted"))
+            elif "in_use" in r:
+                row["deleted"] = not _truthy(r.get("in_use"), True)
+            else:
+                row["deleted"] = False
+            out.append(row)
             continue
         parent = _pick(r, ("parentpath", "parent_path"))
         fname = _pick(r, ("filename", "name", "file"))
         full = _pick(r, ("path", "fullpath"))
         if not full and (parent or fname):
             full = (parent.rstrip("\\") + "\\" + fname) if parent else fname
+        in_use_cell = _pick(r, ("inuse", "in_use"), default="")
         out.append({
             "path": full,
             "name": _basename(full) or fname,
             "created": parse_ts(_pick(r, ("created0x10", "created", "creationtime", "sicreated"))),
             "modified": parse_ts(_pick(r, ("lastmodified0x10", "modified", "lastwritetime", "simodified"))),
             "mft_modified": parse_ts(_pick(r, ("lastrecordchange0x10", "mft_modified", "entrymodified"))),
+            # $FILE_NAME (0x30) attribute times — the timestomp comparison baseline
+            "fn_created": parse_ts(_pick(r, ("created0x30", "fn_created", "fncreated"))),
+            "fn_modified": parse_ts(_pick(r, ("lastmodified0x30", "fn_modified", "fnmodified"))),
+            "fn_record_change": parse_ts(_pick(r, ("lastrecordchange0x30", "fn_record_change"))),
             "size": _to_int(_pick(r, ("filesize", "size", "length"))),
             "is_directory": str(_pick(r, ("isdirectory", "is_directory"))).strip().lower() in ("true", "yes", "1"),
+            # MFTECmd InUse column: a record not in use is a deleted file. Absent -> not deleted.
+            "deleted": (not _truthy(in_use_cell, True)) if in_use_cell != "" else False,
         })
     return out
 

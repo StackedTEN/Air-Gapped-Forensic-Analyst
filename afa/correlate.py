@@ -327,7 +327,6 @@ def _campaign_rootcause(hosts: list[dict], directed: list[dict],
                         shared: dict[str, list[dict]]) -> dict:
     by_name = {h["host"]: h for h in hosts}
     dests = {e["dest"] for e in directed}
-    sources = {e["source"] for e in directed}
 
     # entry candidates: hosts that are never a lateral-movement destination
     entry_candidates = [h for h in hosts if h["host"] not in dests]

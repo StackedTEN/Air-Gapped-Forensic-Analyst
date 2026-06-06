@@ -1,5 +1,4 @@
 import json
-import os
 
 import pytest
 
@@ -293,7 +292,7 @@ class TestLiveTriageTools:
         assert "supportadmin" in names
 
 
-from afa.rootcause import build_reconstruction, extract_iocs
+from afa.rootcause import build_reconstruction
 from afa.tools import powershell_activity, program_execution
 
 
@@ -651,8 +650,7 @@ class TestDeeperSourceIngest:
 # fully air-gapped, every element traceable to a named package.
 # ============================================================================
 import hashlib as _hashlib
-from afa.correlate import (correlate_case, load_case, resolve_packages,
-                           render_case_terminal)
+from afa.correlate import (correlate_case, load_case, resolve_packages)
 
 CASE = "examples/sample-case"
 
@@ -834,6 +832,18 @@ class TestCaseCli:
         for section in ("Host graph", "Pivot chain", "Unified timeline",
                         "ATT&amp;CK rollup", "Chain of custody"):
             assert section in html
+
+    def test_report_cli_writes_self_contained_per_host_html(self, tmp_path):
+        # the per-host investigation report must be just as air-gapped as the
+        # campaign report: no remote font/CDN/asset fetch when opened offline.
+        from typer.testing import CliRunner
+        from afa.cli import app
+        out = tmp_path / "report.html"
+        res = CliRunner().invoke(app, ["report", "--package", PKG, "--out", str(out)])
+        assert res.exit_code == 0, res.output
+        html = out.read_text(encoding="utf-8")
+        for bad in ('googleapis', 'gstatic', 'src="http', 'href="http', '@import', 'url(http'):
+            assert bad not in html, f"external resource ref found in per-host report: {bad}"
 
 
 class TestV2BackwardCompat:

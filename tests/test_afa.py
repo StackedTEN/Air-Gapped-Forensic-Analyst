@@ -642,3 +642,210 @@ class TestDeeperSourceIngest:
         ev = load_evidence(prefetch_path=pf)
         assert prefetch_execution(ev)["count"] == 1
         assert "T1204.002" in {t["id"] for t in map_attack(ev)["techniques"]}
+
+
+# ============================================================================
+# v2 — cross-host correlation. A case is a SET of packages correlated into one
+# campaign: lateral-movement + shared-indicator graph, unified host-tagged
+# timeline, campaign root cause, and an ATT&CK rollup — all deterministic and
+# fully air-gapped, every element traceable to a named package.
+# ============================================================================
+import hashlib as _hashlib
+from afa.correlate import (correlate_case, load_case, resolve_packages,
+                           render_case_terminal)
+
+CASE = "examples/sample-case"
+
+
+def _copy_case(tmp_path):
+    """Copy the three-host sample case into a tmp dir for mutation."""
+    dst = tmp_path / "case"
+    shutil.copytree(CASE, dst)
+    return dst
+
+
+def _rehash_manifest(pkg_dir):
+    """Recompute a package manifest's SHA-256s after editing its artifact files."""
+    mpath = pkg_dir / "manifest.json"
+    manifest = json.loads(mpath.read_text())
+    for e in manifest["files"]:
+        e["sha256"] = _hashlib.sha256((pkg_dir / e["name"]).read_bytes()).hexdigest().upper()
+    mpath.write_text(json.dumps(manifest, indent=2))
+
+
+class TestCaseLoadingAndCustody:
+    def test_loads_all_packages_and_verifies_each(self):
+        hosts, rejected = load_case(CASE)
+        assert {h["host"] for h in hosts} == {"WEB-01", "DB-02", "DC-01"}
+        assert rejected == []
+        assert all(h["custody"]["ok"] for h in hosts)
+
+    def test_resolve_packages_finds_three(self):
+        assert len(resolve_packages(CASE)) == 3
+
+    def test_tampered_package_is_rejected_and_named(self, tmp_path):
+        dst = _copy_case(tmp_path)
+        (dst / "db-02" / "processes.json").write_text("[]")  # tamper, do NOT rehash
+        hosts, rejected = load_case(dst)
+        assert {h["host"] for h in hosts} == {"WEB-01", "DC-01"}      # tampered one excluded
+        assert len(rejected) == 1
+        assert "db-02" in rejected[0]["package"]
+        assert "custody" in rejected[0]["reason"].lower()
+        # the campaign reflects the rejection rather than silently analyzing it
+        campaign = correlate_case(dst)
+        assert campaign["host_count"] == 2 and len(campaign["rejected"]) == 1
+
+
+class TestUndirectedEdges:
+    def setup_method(self):
+        self.c = correlate_case(CASE)
+
+    def test_shared_c2_hash_account_across_hosts(self):
+        shared = self.c["shared_indicators"]
+        assert any(s["value"] == "203.0.113.45" for s in shared["c2"])
+        assert any(s["value"] == "A94A8FE5CCB19BA61C4C0873D391E987982FBBD3" for s in shared["hash"])
+        assert any(s["value"] == "svc_backup" for s in shared["account"])
+        # each shared indicator spans all three hosts
+        c2 = next(s for s in shared["c2"] if s["value"] == "203.0.113.45")
+        assert {m["host"] for m in c2["hosts"]} == {"WEB-01", "DB-02", "DC-01"}
+
+    def test_undirected_edges_carry_per_side_evidence(self):
+        assert self.c["undirected_edges"]
+        for edge in self.c["undirected_edges"]:
+            a, b = edge["hosts"]
+            for s in edge["shared"]:
+                assert s["evidence"][a] and s["evidence"][b]   # provenance on both sides
+
+
+class TestDirectedEdges:
+    def setup_method(self):
+        self.c = correlate_case(CASE)
+
+    def test_pivot_chain_direction_and_citations(self):
+        edges = {(e["source"], e["dest"]): e for e in self.c["directed_edges"]}
+        assert ("WEB-01", "DB-02") in edges
+        assert ("DB-02", "DC-01") in edges
+        assert ("DB-02", "WEB-01") not in edges               # direction is correct
+        e = edges[("WEB-01", "DB-02")]
+        assert e["account"] == "svc_backup"
+        assert e["ts"] == "2026-05-02T09:30:00Z"
+        assert e["logon_type"] == "3"
+        assert "DB-02" in e["evidence"] and "4624" in e["evidence"]
+
+    def test_directed_edges_are_time_ordered(self):
+        ts = [e["ts"] for e in self.c["directed_edges"]]
+        assert ts == sorted(ts)
+
+
+class TestUnifiedTimeline:
+    def setup_method(self):
+        self.c = correlate_case(CASE)
+
+    def test_timeline_is_ordered_and_host_tagged(self):
+        tl = self.c["timeline"]
+        assert len(tl) >= 12
+        assert [r["ts"] for r in tl] == sorted(r["ts"] for r in tl)
+        assert all(r["host"] in {"WEB-01", "DB-02", "DC-01"} and r["package"] for r in tl)
+        assert {r["host"] for r in tl} == {"WEB-01", "DB-02", "DC-01"}
+
+
+class TestCampaignRootCause:
+    def test_identifies_entry_and_orders_chain(self):
+        c = correlate_case(CASE)
+        assert c["entry_host"] == "WEB-01"
+        assert c["confidence"] == "high"
+        reached = [s["to"] for s in c["pivot_chain"]]
+        assert reached == ["WEB-01", "DB-02", "DC-01"]        # entry first, then pivots in order
+
+    def test_degrades_without_source_fields(self, tmp_path):
+        dst = _copy_case(tmp_path)
+        # strip the logon-source fields from every package's events, then re-hash
+        for d in ("web-01", "db-02", "dc-01"):
+            epath = dst / d / "events.json"
+            events = json.loads(epath.read_text())
+            for e in events:
+                e["logon_type"] = e["src_ip"] = e["src_host"] = ""
+            epath.write_text(json.dumps(events, indent=2))
+            _rehash_manifest(dst / d)
+        c = correlate_case(dst)
+        assert c["directed_edges"] == []                      # no directed movement reconstructable
+        assert c["confidence"] in ("medium", "low")           # lower confidence, no crash
+        assert c["undirected_edges"]                          # still linked by shared indicators
+        assert c["host_count"] == 3
+
+
+class TestAttackRollup:
+    def setup_method(self):
+        self.c = correlate_case(CASE)
+
+    def test_unions_and_attributes_without_dupes(self):
+        techs = self.c["attack"]["techniques"]
+        ids = [t["id"] for t in techs]
+        assert len(ids) == len(set(ids))                      # de-duplicated
+        by_id = {t["id"]: t for t in techs}
+        # C2 (web protocols) is seen on all three hosts and attributed to each
+        assert set(by_id["T1071.001"]["hosts"]) == {"WEB-01", "DB-02", "DC-01"}
+        # the rollup is a true union: a web-01-only technique is still present
+        assert "T1070.001" in by_id and by_id["T1070.001"]["hosts"] == ["WEB-01"]
+
+
+class TestProvenanceInvariant:
+    """Every edge and finding must trace to a real event/artifact in a named pkg."""
+    def setup_method(self):
+        self.c = correlate_case(CASE)
+        self.events = {h["host"]: load_package(h["package"])[0].events for h in self.c["hosts"]}
+
+    def test_directed_edges_cite_a_real_event(self):
+        for e in self.c["directed_edges"]:
+            dest_events = self.events[e["dest"]]
+            match = [x for x in dest_events
+                     if x.get("event_id") in (4624, 4625) and x.get("ts") == e["ts"]]
+            assert match, f"no backing event for edge {e['source']}->{e['dest']}"
+            assert e["package"]                               # names the package
+
+    def test_shared_indicators_exist_in_each_named_host(self):
+        loaded = {h["host"]: load_package(h["package"])[0] for h in self.c["hosts"]}
+        for cat in ("c2", "hash", "account"):
+            for s in self.c["shared_indicators"][cat]:
+                for m in s["hosts"]:
+                    blob = json.dumps([e for e in loaded[m["host"]].events]
+                                      + loaded[m["host"]].network
+                                      + loaded[m["host"]].programs
+                                      + loaded[m["host"]].processes
+                                      + loaded[m["host"]].shimcache).lower()
+                    assert s["value"].lower() in blob, f"{s['value']} not in {m['host']}"
+
+
+class TestCaseCli:
+    def test_case_cli_runs_and_writes_self_contained_html(self, tmp_path):
+        from typer.testing import CliRunner
+        from afa.cli import app
+        out = tmp_path / "case.html"
+        res = CliRunner().invoke(app, ["case", "--packages", CASE, "--out", str(out)])
+        assert res.exit_code == 0, res.output
+        assert "WEB-01" in res.output and "DB-02" in res.output
+        assert "confidence: high" in res.output
+        html = out.read_text(encoding="utf-8")
+        # self-contained: no external resource fetches of any kind
+        for bad in ('googleapis', 'src="http', 'href="http', '@import', 'url(http', '<script'):
+            assert bad not in html, f"external resource ref found: {bad}"
+        # contains the required sections + inline graph
+        assert "<svg" in html
+        for section in ("Host graph", "Pivot chain", "Unified timeline",
+                        "ATT&amp;CK rollup", "Chain of custody"):
+            assert section in html
+
+
+class TestV2BackwardCompat:
+    def test_old_package_without_new_fields_still_analyzes(self):
+        # the single-host sample (WEB-03) has no logon_type/src_ip/src_host fields
+        ev, _ = load_package(PKG)
+        assert all("src_ip" in e for e in ev.events)          # normalized in, defaulting to ""
+        assert all(e["src_ip"] == "" for e in ev.events)      # absent in the old package
+        recon = build_reconstruction(ev)
+        assert recon["root_cause_confidence"] == "high"       # single-host analysis unchanged
+
+    def test_egress_guard_still_blocks_remote(self, monkeypatch):
+        monkeypatch.delenv("AFA_ALLOW_EGRESS", raising=False)
+        with pytest.raises(EgressBlocked):
+            assert_local("https://api.anthropic.com/v1/messages")

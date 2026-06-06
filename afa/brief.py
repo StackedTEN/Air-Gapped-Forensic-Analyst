@@ -13,7 +13,7 @@ from .loader import Evidence
 from .tools import (_remote_host, account_changes, analyze_command_intent, corroborated_c2,
                     detect_antiforensics, detect_lineage_anomalies, detect_lolbins,
                     detect_timestomping, filesystem_timeline, list_autoruns, map_attack,
-                    scheduled_tasks, search_events, usb_history)
+                    scheduled_tasks, usb_history)
 
 
 def build_brief(ev: Evidence) -> dict:

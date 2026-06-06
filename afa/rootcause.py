@@ -13,12 +13,11 @@ from __future__ import annotations
 import re
 
 from .loader import Evidence
-from .tools import (SUSPICIOUS_PATHS, TACTIC_ORDER, _is_external, _is_suspicious_path,
-                    _remote_host, _suspicious_proc_names, account_changes, analyze_command_intent,
+from .tools import (SUSPICIOUS_PATHS, TACTIC_ORDER, _is_suspicious_path,
+                    _remote_host, account_changes, analyze_command_intent,
                     browser_history, corroborated_c2, detect_antiforensics,
-                    detect_lineage_anomalies, detect_lolbins, detect_timestomping,
-                    filesystem_timeline, list_autoruns, map_attack, prefetch_execution,
-                    shimcache_entries, wmi_persistence)
+                    detect_lolbins, detect_timestomping,
+                    filesystem_timeline, list_autoruns, map_attack, shimcache_entries, wmi_persistence)
 
 _ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 _URL_RE = re.compile(r"(?:https?|ftp)://[^\s'\"\)\]]+", re.I)

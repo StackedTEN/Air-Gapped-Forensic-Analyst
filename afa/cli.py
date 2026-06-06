@@ -114,7 +114,7 @@ def report(mode: str = _MODE, model: str = _MODEL,
     provider = _build(mode, model)
     answers = [provider.investigate(q, ev) for q in CASE_QUESTIONS]
     recon = build_reconstruction(ev)
-    out.write_text(render_html(answers, ev, map_attack(ev), recon=recon))
+    out.write_text(render_html(answers, ev, map_attack(ev), recon=recon), encoding="utf-8")
     typer.echo(f"  wrote investigation report -> {out}")
 
 
@@ -127,7 +127,7 @@ def rootcause(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _RE
     recon = build_reconstruction(ev)
     typer.echo("\n" + render_rootcause(recon) + "\n")
     if out:
-        out.write_text(render_html([], ev, map_attack(ev), recon=recon))
+        out.write_text(render_html([], ev, map_attack(ev), recon=recon), encoding="utf-8")
         typer.echo(f"  wrote root-cause report -> {out}")
 
 
@@ -167,7 +167,7 @@ def attack(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, 
     amap = map_attack(ev)
     render_attack_terminal(amap)
     if out:
-        out.write_text(render_html([], ev, amap, render_brief(build_brief(ev))))
+        out.write_text(render_html([], ev, amap, render_brief(build_brief(ev))), encoding="utf-8")
         typer.echo(f"  wrote ATT&CK report -> {out}")
 
 

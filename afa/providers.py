@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 
-from .egress import EGRESS_WARNING, assert_local, egress_allowed
+from .egress import EGRESS_WARNING, assert_local
 from .loader import Evidence
 from .models import Answer, ToolCall
 from .tools import dispatch, tool_specs

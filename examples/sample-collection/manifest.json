@@ -14,8 +14,8 @@
   "files": [
     {
       "name": "events.json",
-      "sha256": "91D79AECFAFF724FD38CE5752D32F5A2F7DCE27C70B53E5426F397DEE8735E06",
-      "count": 8
+      "sha256": "09BDFC1080182BACB3415B3CE261FCD98AEBE78902AA668A7E56F809A19E4E2D",
+      "count": 15
     },
     {
       "name": "registry.json",
@@ -59,8 +59,8 @@
     },
     {
       "name": "filesystem.json",
-      "sha256": "5F115336E42D813429778E6EADCD24BBAC52FA11F5E6EB9F8E6654695F8C1412",
-      "count": 5
+      "sha256": "9258ACC2CFC00FA6E1A2FB8F33DB92B30D95645CC5D9E3ACFCF1852E1CC0F52D",
+      "count": 7
     },
     {
       "name": "browser.json",

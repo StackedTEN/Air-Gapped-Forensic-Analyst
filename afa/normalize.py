@@ -25,8 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ---- internal event schema keys ----
+# logon_type/src_ip/src_host are v2 additions for cross-host correlation. They are
+# populated for 4624/4625 by newer collectors; older packages omit them and they
+# default to "" — so old and new packages both load and analyze unchanged.
 EVENT_KEYS = ("ts", "event_id", "channel", "computer", "user",
-              "process", "parent_process", "cmdline", "dst_ip", "detail")
+              "process", "parent_process", "cmdline", "dst_ip", "detail",
+              "logon_type", "src_ip", "src_host")
 
 
 # --------------------------------------------------------------------------
@@ -74,6 +78,14 @@ def _norm_winevent(obj: dict) -> dict:
     eid = obj.get("Id", obj.get("EventID", obj.get("event_id", 0)))
     proc = _basename(_from_message(msg, "New Process Name"))
     parent = _basename(_from_message(msg, "Creator Process Name"))
+    # logon source (4624/4625) — for cross-host correlation. Best-effort from the
+    # rendered message; absent on other event types, defaults to "".
+    src_ip = _from_message(msg, "Source Network Address")
+    if src_ip in ("-", "::1", "127.0.0.1"):
+        src_ip = ""
+    src_host = _from_message(msg, "Workstation Name")
+    if src_host == "-":
+        src_host = ""
     return {
         "ts": parse_ts(obj.get("TimeCreated") or obj.get("ts")),
         "event_id": int(eid) if str(eid).isdigit() else 0,
@@ -85,6 +97,9 @@ def _norm_winevent(obj: dict) -> dict:
         "cmdline": _from_message(msg, "Process Command Line"),
         "dst_ip": "",
         "detail": (msg.splitlines()[0].strip() if msg else ""),
+        "logon_type": _from_message(msg, "Logon Type"),
+        "src_ip": src_ip,
+        "src_host": src_host,
     }
 
 
@@ -102,6 +117,9 @@ _CSV_ALIASES = {
     "cmdline": ("cmdline", "commandline", "command"),
     "dst_ip": ("dst_ip", "destinationip", "remoteaddress", "destip"),
     "detail": ("detail", "message", "description", "info"),
+    "logon_type": ("logon_type", "logontype"),
+    "src_ip": ("src_ip", "sourcenetworkaddress", "sourceaddress", "ipaddress", "srcip"),
+    "src_host": ("src_host", "workstationname", "sourceworkstation", "srchost"),
 }
 
 

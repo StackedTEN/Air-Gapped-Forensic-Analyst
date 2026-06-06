@@ -262,3 +262,289 @@ def render_html(answers: list[Answer], ev: Evidence, attack_map: dict | None = N
   {''.join(blocks)}
   <footer>generated {now} &nbsp;·&nbsp; air-gapped-forensic-analyst</footer>
 </div></body></html>"""
+
+
+# ==========================================================================
+# Campaign (cross-host) report — fully self-contained, no external requests.
+# Reuses the ink+ember theme; fonts are referenced by name and degrade to system
+# fallbacks (no font-CDN <link>), so the file works on a zero-egress host.
+# ==========================================================================
+def _case_graph_svg(campaign: dict) -> str:
+    """Hand-rolled, dependency-free SVG of the host graph.
+
+    Hosts are nodes laid out in pivot order; directed lateral-movement edges arc
+    above with timestamped arrows; undirected shared-indicator edges arc below,
+    dashed and differently coloured.
+    """
+    hosts = campaign["hosts"]
+    if not hosts:
+        return ""
+    # order: entry first, then directed-edge destinations, then the rest
+    order: list[str] = []
+    if campaign.get("entry_host"):
+        order.append(campaign["entry_host"])
+    for e in campaign["directed_edges"]:
+        for h in (e["source"], e["dest"]):
+            if h not in order:
+                order.append(h)
+    for h in hosts:
+        if h["host"] not in order:
+            order.append(h["host"])
+    by_name = {h["host"]: h for h in hosts}
+    order = [h for h in order if h in by_name]
+
+    n = len(order)
+    W, H, NY = 900, 340, 170
+    left, right = 110, 110
+    span = (W - left - right)
+    xs = {h: (left + (span * i / (n - 1) if n > 1 else span / 2)) for i, h in enumerate(order)}
+
+    def esc(s):  # local escape helper
+        return html.escape(str(s))
+
+    parts = [
+        f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="host correlation graph" class="cgraph">',
+        '<defs><marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5" '
+        'orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--ember)"/></marker></defs>',
+    ]
+
+    # undirected edges (below the row, dashed)
+    for k, e in enumerate(campaign["undirected_edges"]):
+        a, b = e["hosts"]
+        if a not in xs or b not in xs:
+            continue
+        xa, xb = xs[a], xs[b]
+        cy = NY + 70 + (k % 3) * 16
+        mx = (xa + xb) / 2
+        kinds = ", ".join(sorted({s["type"] for s in e["shared"]}))
+        parts.append(f'<path d="M{xa:.0f},{NY+24} Q{mx:.0f},{cy:.0f} {xb:.0f},{NY+24}" '
+                     f'fill="none" stroke="var(--gold)" stroke-width="1.4" '
+                     f'stroke-dasharray="5 4" opacity="0.8"/>')
+        parts.append(f'<text x="{mx:.0f}" y="{cy+12:.0f}" class="elabel shared">{esc(kinds)}</text>')
+
+    # directed edges (above the row, solid, arrowhead + timestamp)
+    for k, e in enumerate(campaign["directed_edges"]):
+        a, b = e["source"], e["dest"]
+        if a not in xs or b not in xs:
+            continue
+        xa, xb = xs[a], xs[b]
+        cy = NY - 80 - (k % 2) * 26
+        mx = (xa + xb) / 2
+        # start/end slightly inset so the arrow meets the node edge
+        sx = xa + (10 if xb > xa else -10)
+        ex = xb + (-12 if xb > xa else 12)
+        parts.append(f'<path d="M{sx:.0f},{NY-24} Q{mx:.0f},{cy:.0f} {ex:.0f},{NY-24}" '
+                     f'fill="none" stroke="var(--ember)" stroke-width="2" marker-end="url(#arrow)"/>')
+        t = (e.get("ts") or "")[11:16]
+        parts.append(f'<text x="{mx:.0f}" y="{cy+4:.0f}" class="elabel">'
+                     f'{esc(t)} · {esc(e.get("logon_type_name","logon"))}</text>')
+
+    # nodes
+    for h in order:
+        x = xs[h]
+        meta = by_name[h]
+        is_entry = (h == campaign.get("entry_host"))
+        ip = meta["ips"][0] if meta["ips"] else ""
+        cls = "node entry" if is_entry else "node"
+        parts.append(f'<g class="{cls}">')
+        parts.append(f'<rect x="{x-66:.0f}" y="{NY-26}" width="132" height="52" rx="10"/>')
+        parts.append(f'<text x="{x:.0f}" y="{NY-4}" class="nhost">{esc(h)}</text>')
+        parts.append(f'<text x="{x:.0f}" y="{NY+14}" class="nip">{esc(ip)}</text>')
+        if is_entry:
+            parts.append(f'<text x="{x:.0f}" y="{NY-34}" class="ntag">entry</text>')
+        parts.append('</g>')
+
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+def render_case_html(campaign: dict) -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    esc = html.escape
+
+    graph = _case_graph_svg(campaign)
+
+    # pivot chain
+    chain_rows = ""
+    for s in campaign["pivot_chain"]:
+        if s["kind"] == "entry":
+            chain_rows += (f'<div class="pstep"><div class="pdot">●</div><div class="pbody">'
+                           f'<div class="phead">Entry · {esc(s["to"])}'
+                           f'<span class="pts">{esc(s.get("ts",""))}</span></div>'
+                           f'<div class="pev">{esc(s.get("evidence",""))}</div></div></div>')
+        else:
+            chain_rows += (f'<div class="pstep"><div class="pdot">→</div><div class="pbody">'
+                           f'<div class="phead">{esc(s["from"])} → {esc(s["to"])}'
+                           f'<span class="pts">{esc(s.get("ts",""))}</span></div>'
+                           f'<div class="pmeta">{esc(s.get("logon_type","?"))} logon as '
+                           f'{esc(s.get("account","?"))}</div>'
+                           f'<div class="pev">{esc(s.get("evidence",""))}</div></div></div>')
+
+    # shared-indicator links
+    links = ""
+    for e in campaign["undirected_edges"]:
+        chips = "".join(f'<span class="chip">{esc(s["type"])}: {esc(s["value"])}</span>'
+                        for s in e["shared"])
+        links += (f'<div class="link"><span class="lhosts">{esc(e["hosts"][0])} ↔ '
+                  f'{esc(e["hosts"][1])}</span><span class="lchips">{chips}</span></div>')
+
+    # timeline
+    tl = ""
+    for r in campaign["timeline"]:
+        src = f' <span class="tsrc">from {esc(r["src"])}</span>' if r.get("src") else ""
+        tl += (f'<div class="trow"><span class="tts">{esc(r["ts"])}</span>'
+               f'<span class="thost">{esc(r["host"])}</span>'
+               f'<span class="tev">{esc(str(r.get("event_id","")))}</span>'
+               f'<span class="tdetail">{esc(r.get("detail",""))}{src}</span></div>')
+
+    # ATT&CK rollup
+    att = ""
+    for t in campaign["attack"]["techniques"]:
+        hostchips = "".join(f'<span class="hchip">{esc(h)}</span>' for h in t["hosts"])
+        att += (f'<div class="acell"><div class="atop"><span class="tid">{esc(t["id"])}</span>'
+                f'<span class="acnt">{t["count"]}×</span></div>'
+                f'<div class="tname">{esc(t["name"].split(":")[-1].strip())}</div>'
+                f'<div class="ahosts">{hostchips}</div></div>')
+
+    # custody panel
+    cust = ""
+    for c in campaign["custody"]:
+        ok = c["ok"]
+        cust += (f'<div class="crow {"cok" if ok else "cbad"}">'
+                 f'<span class="cmark">{"✓" if ok else "✗"}</span>'
+                 f'<span class="chost">{esc(c["host"])}</span>'
+                 f'<span class="cpkg">{esc(c["package"])}</span>'
+                 f'<span class="cfiles">{len(c["files"])} files verified</span></div>')
+    rej = ""
+    for r in campaign["rejected"]:
+        rej += (f'<div class="crow cbad"><span class="cmark">✗</span>'
+                f'<span class="cpkg">{esc(r["package"])}</span>'
+                f'<span class="cfiles">{esc(r["reason"])}</span></div>')
+
+    conf = campaign["confidence"]
+    return f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campaign — case {esc(campaign['case_id'])}</title>
+<style>
+  :root {{ --ink:#15110d; --ink2:#1d1712; --line:#382e25; --paper:#efe6d8; --muted:#9b8f7e;
+    --faint:#6f6453; --ember:#e0603a; --gold:#e0a838; --teal:#46c08e; }}
+  * {{ box-sizing:border-box; }}
+  body {{ margin:0; background:radial-gradient(900px 500px at 82% -10%, rgba(70,192,142,.08), transparent 60%), var(--ink);
+    color:var(--paper); font-family:"Spline Sans",system-ui,sans-serif; line-height:1.55; -webkit-font-smoothing:antialiased; }}
+  .wrap {{ max-width:980px; margin:0 auto; padding:46px 24px 80px; }}
+  .kicker {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:12px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--ember); margin:0 0 10px; }}
+  h1 {{ font-family:"Fraunces",Georgia,serif; font-weight:600; font-size:clamp(28px,5vw,44px);
+    line-height:1.04; margin:0 0 8px; letter-spacing:-.01em; }}
+  .sub {{ color:var(--muted); max-width:64ch; margin:0 0 22px; }}
+  .meta {{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:30px; }}
+  .badge {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; letter-spacing:.06em;
+    padding:6px 12px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }}
+  .badge.ok {{ color:var(--teal); border-color:rgba(70,192,142,.4); background:rgba(70,192,142,.07); }}
+  h2 {{ font-family:"Fraunces",Georgia,serif; font-weight:500; font-size:22px; margin:32px 0 12px; }}
+  section {{ margin-bottom:14px; }}
+  .rc-callout {{ border:1px solid rgba(224,96,58,.35); background:rgba(224,96,58,.08);
+    border-radius:14px; padding:18px 22px; margin-bottom:22px; }}
+  .rc-label {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ember); font-weight:700; }}
+  .rc-conf {{ float:right; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; padding:2px 9px;
+    border-radius:20px; text-transform:uppercase; letter-spacing:.06em; }}
+  .rc-high {{ background:rgba(220,80,60,.25); color:#f2b8a8; }}
+  .rc-medium {{ background:rgba(214,167,75,.22); color:#e6cf9a; }}
+  .rc-low {{ background:rgba(140,140,140,.2); color:#cfcfcf; }}
+  .rc-text {{ font-family:"Fraunces",Georgia,serif; font-size:18px; line-height:1.45; margin:10px 0 0; color:#f0e6d6; }}
+  .graph-wrap {{ border:1px solid var(--line); border-radius:14px; padding:8px;
+    background:linear-gradient(180deg,var(--ink2),transparent); margin-bottom:8px; }}
+  svg.cgraph {{ width:100%; height:auto; display:block; }}
+  .node rect {{ fill:var(--ink2); stroke:var(--line); stroke-width:1.5; }}
+  .node.entry rect {{ stroke:var(--ember); stroke-width:2; fill:rgba(224,96,58,.10); }}
+  .nhost {{ fill:var(--paper); font-family:"JetBrains Mono",ui-monospace,monospace; font-size:14px;
+    font-weight:600; text-anchor:middle; }}
+  .nip {{ fill:var(--muted); font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; text-anchor:middle; }}
+  .ntag {{ fill:var(--ember); font-family:"JetBrains Mono",ui-monospace,monospace; font-size:9px;
+    letter-spacing:.14em; text-transform:uppercase; text-anchor:middle; }}
+  .elabel {{ fill:#e7c98a; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; text-anchor:middle; }}
+  .elabel.shared {{ fill:var(--gold); }}
+  .legend {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint);
+    display:flex; gap:18px; padding:0 6px 6px; }}
+  .legend .li b {{ color:var(--ember); }} .legend .ls b {{ color:var(--gold); }}
+  .pstep {{ display:flex; gap:14px; align-items:flex-start; padding-bottom:14px; position:relative; }}
+  .pstep:not(:last-child)::before {{ content:""; position:absolute; left:13px; top:28px; bottom:0; width:2px; background:var(--line); }}
+  .pdot {{ flex:0 0 28px; height:28px; border-radius:50%; background:var(--ember); color:#1a120c;
+    font-family:"JetBrains Mono",ui-monospace,monospace; font-weight:700; font-size:13px; display:flex;
+    align-items:center; justify-content:center; z-index:1; }}
+  .phead {{ font-family:"Fraunces",Georgia,serif; font-size:17px; color:#ede1cf; }}
+  .pts {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; color:var(--faint); margin-left:10px; }}
+  .pmeta {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; color:var(--gold); margin-top:3px; }}
+  .pev {{ color:#c9bdac; font-size:12.5px; margin-top:4px; }}
+  .link {{ display:flex; gap:12px; flex-wrap:wrap; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--line); }}
+  .lhosts {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:12.5px; color:#ede1cf; flex:0 0 200px; }}
+  .chip {{ display:inline-block; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10.5px;
+    color:var(--gold); border:1px solid rgba(224,168,56,.32); border-radius:6px; padding:2px 7px; margin:2px 5px 0 0; }}
+  .timeline {{ border:1px solid var(--line); border-radius:12px; overflow:hidden; }}
+  .trow {{ display:grid; grid-template-columns:160px 90px 50px 1fr; gap:10px; padding:7px 12px;
+    font-size:12px; border-bottom:1px solid var(--line); align-items:baseline; }}
+  .trow:last-child {{ border-bottom:none; }}
+  .tts {{ font-family:"JetBrains Mono",ui-monospace,monospace; color:var(--faint); }}
+  .thost {{ font-family:"JetBrains Mono",ui-monospace,monospace; color:var(--ember); }}
+  .tev {{ font-family:"JetBrains Mono",ui-monospace,monospace; color:var(--gold); }}
+  .tdetail {{ color:#d8ccba; }} .tsrc {{ color:var(--teal); }}
+  .matrix {{ display:flex; flex-wrap:wrap; gap:10px; }}
+  .acell {{ flex:1 1 200px; min-width:200px; background:rgba(224,96,58,.08); border:1px solid rgba(224,96,58,.28);
+    border-radius:8px; padding:10px 12px; }}
+  .atop {{ display:flex; justify-content:space-between; align-items:baseline; }}
+  .tid {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:12px; font-weight:600; color:var(--ember); }}
+  .acnt {{ font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; color:var(--faint); }}
+  .tname {{ font-size:11.5px; color:#d8ccba; margin:3px 0 6px; }}
+  .hchip {{ display:inline-block; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px;
+    color:var(--teal); border:1px solid rgba(70,192,142,.3); border-radius:6px; padding:1px 6px; margin:2px 4px 0 0; }}
+  .crow {{ display:grid; grid-template-columns:24px 110px 1fr auto; gap:10px; padding:8px 12px; font-size:12px;
+    border:1px solid var(--line); border-radius:8px; margin-bottom:6px; align-items:baseline; }}
+  .crow.cok {{ border-left:3px solid var(--teal); }} .crow.cbad {{ border-left:3px solid var(--ember); }}
+  .cmark {{ font-weight:700; }} .cok .cmark {{ color:var(--teal); }} .cbad .cmark {{ color:var(--ember); }}
+  .chost {{ font-family:"JetBrains Mono",ui-monospace,monospace; color:#ede1cf; }}
+  .cpkg {{ font-family:"JetBrains Mono",ui-monospace,monospace; color:var(--muted); word-break:break-all; }}
+  .cfiles {{ font-family:"JetBrains Mono",ui-monospace,monospace; color:var(--faint); }}
+  footer {{ margin-top:44px; color:var(--faint); font-size:12px; font-family:"JetBrains Mono",ui-monospace,monospace; }}
+</style></head>
+<body><div class="wrap">
+  <p class="kicker">Cross-host correlation · deterministic · air-gapped</p>
+  <h1>Campaign — case {esc(campaign['case_id'])}</h1>
+  <p class="sub">{campaign['host_count']} host(s) correlated from verified collection packages.
+  Every edge, timeline entry, and finding traces to a specific event or artifact in a named package —
+  no model is involved, and the evidence never left the host.</p>
+  <div class="meta">
+    <span class="badge ok">air-gapped · no egress</span>
+    <span class="badge">{campaign['host_count']} hosts</span>
+    <span class="badge">{len(campaign['directed_edges'])} lateral-movement edges</span>
+    <span class="badge">{len(campaign['undirected_edges'])} shared-indicator links</span>
+    <span class="badge">{campaign['attack']['technique_count']} ATT&amp;CK techniques</span>
+  </div>
+
+  <div class="rc-callout"><span class="rc-label">Campaign root cause</span>
+    <span class="rc-conf rc-{conf}">{conf} confidence</span>
+    <p class="rc-text">{esc(campaign['root_cause'])}</p></div>
+
+  <h2>Host graph</h2>
+  <div class="graph-wrap">{graph}</div>
+  <div class="legend"><span class="li"><b>──▶</b> lateral movement (logon)</span>
+    <span class="ls"><b>– –</b> shared indicator (C2 / hash / account)</span></div>
+
+  <h2>Pivot chain</h2>
+  <section>{chain_rows or '<p class="sub">No directed pivots reconstructed.</p>'}</section>
+
+  <h2>Shared-indicator links</h2>
+  <section>{links or '<p class="sub">No shared indicators across hosts.</p>'}</section>
+
+  <h2>Unified timeline</h2>
+  <section class="timeline">{tl}</section>
+
+  <h2>MITRE ATT&amp;CK rollup</h2>
+  <section class="matrix">{att}</section>
+
+  <h2>Chain of custody</h2>
+  <section>{cust}{rej}</section>
+
+  <footer>generated {now} &nbsp;·&nbsp; air-gapped-forensic-analyst · cross-host correlation</footer>
+</div></body></html>"""

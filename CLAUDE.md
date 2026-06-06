@@ -87,8 +87,11 @@ Run the suite:
 pytest -q
 ```
 
-Current status: **47 tests pass**. The suite proves the tools find the real persistence/USB/C2/
-scheduled-task/account/anti-forensic artifacts (and stay quiet on absent ones); that every mapped
+Current status: **118 tests pass**. The suite proves the tools find the real persistence/USB/C2/
+scheduled-task/account/anti-forensic artifacts (and stay quiet on absent ones); that the
+Detection-Depth detectors catch LOLBin abuse, base64-decoded/obfuscated commands, anomalous
+process lineage, deepened anti-forensics (VSS/USN/timestomp) and deleted $MFT records — each
+grounded, mapped to ATT&CK, and silent on a clean host; that every mapped
 ATT&CK technique is evidence-backed; that ingest normalizes Get-WinEvent JSON, CSV, and `.reg`;
 that a package loads and that tampering with any file fails the custody check and blocks analysis;
 that root-cause reconstructs the kill-chain in order, extracts the right IOCs, and holds the

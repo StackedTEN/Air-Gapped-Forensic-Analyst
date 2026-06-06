@@ -1,0 +1,10 @@
+[
+  {
+    "name": "FakeSvc",
+    "display": "Windows Update Helper",
+    "path": "C:\\Windows\\Temp\\f.exe",
+    "start": "Auto",
+    "state": "Running",
+    "account": "LocalSystem"
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "proto": "tcp",
+    "local": "192.0.2.13:52044",
+    "remote": "203.0.113.45:443",
+    "state": "Established",
+    "pid": 6120,
+    "process": "svchost.exe"
+  }
+]

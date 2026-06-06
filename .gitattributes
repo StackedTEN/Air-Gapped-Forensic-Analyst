@@ -3,3 +3,4 @@
 # these files, or verify_package() fails on checkout on Windows. Treat them as
 # binary so the bytes are stored and restored exactly.
 examples/sample-collection/*.json -text
+examples/sample-case/**/*.json -text

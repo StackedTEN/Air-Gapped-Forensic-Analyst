@@ -1,0 +1,14 @@
+[
+  {
+    "name": "jdoe",
+    "enabled": true,
+    "last_logon": "2026-05-02T08:00:00Z",
+    "groups": ""
+  },
+  {
+    "name": "svc_backup",
+    "enabled": true,
+    "last_logon": "",
+    "groups": "Administrators"
+  }
+]

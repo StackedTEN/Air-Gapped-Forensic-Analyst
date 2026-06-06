@@ -1,0 +1,56 @@
+{
+  "case_id": "IR-2026-045",
+  "operator": "T.Nelson",
+  "collector_version": "2.0.0",
+  "profile": "quick",
+  "host": {
+    "computer": "DB-02",
+    "os": "Windows Server 2022",
+    "boot_time": "2026-05-01T22:00:00Z",
+    "current_user": "DB-02\\svc_backup",
+    "collected_at": "2026-05-02T10:30:00Z"
+  },
+  "collected_at": "2026-05-02T10:30:00Z",
+  "files": [
+    {
+      "name": "events.json",
+      "sha256": "7911B05C0AD7FE70483BB5FA4CE97DA00E5FC8A5435F900762E89EE5C0461F95",
+      "count": 3
+    },
+    {
+      "name": "registry.json",
+      "sha256": "F8916E37D3D48939C7988D4B42E17331EFD1CE3783CBBE85074ED0D5ED3F9E9A",
+      "count": 1
+    },
+    {
+      "name": "processes.json",
+      "sha256": "DE4E228BE989140E0D83431B741CF210E9B59DB43126D3A67EE6B08BD6DC158E",
+      "count": 1
+    },
+    {
+      "name": "network.json",
+      "sha256": "0F8DBF3D46D1818EA4EE9E6295E089BB279E452015BCC42F6DAFFD41E4A3E550",
+      "count": 1
+    },
+    {
+      "name": "users.json",
+      "sha256": "BACD829E3A5B5045F0342C28F68975A3E077694F0286B3455E20D234F6AA019A",
+      "count": 2
+    },
+    {
+      "name": "programs.json",
+      "sha256": "135AC24970D39C31409D85A1344B717729E9936E313C4DEEBE244D7E7914AC07",
+      "count": 1
+    },
+    {
+      "name": "prefetch.json",
+      "sha256": "68E88AA26706C379C9B1DB996701CAEDF085778EFBF170B32364E3EE16D5981A",
+      "count": 1
+    },
+    {
+      "name": "shimcache.json",
+      "sha256": "9A7D15F1BD58CFC43FC48F9AABE9358F143198883C2D1DA80FA8E96AE40DE52E",
+      "count": 1
+    }
+  ]
+}

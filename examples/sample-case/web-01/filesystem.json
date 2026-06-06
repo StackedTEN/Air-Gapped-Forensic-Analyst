@@ -1,0 +1,20 @@
+[
+  {
+    "path": "C:\\Users\\jdoe\\Downloads\\svchost.exe",
+    "name": "svchost.exe",
+    "created": "2026-05-02T09:10:05Z",
+    "modified": "2026-05-02T09:10:05Z",
+    "mft_modified": "2026-05-02T09:10:05Z",
+    "size": 73216,
+    "is_directory": false
+  },
+  {
+    "path": "C:\\Users\\Public\\svchost.exe",
+    "name": "svchost.exe",
+    "created": "2026-05-02T09:11:50Z",
+    "modified": "2026-05-02T09:11:50Z",
+    "mft_modified": "2026-05-02T09:11:50Z",
+    "size": 73216,
+    "is_directory": false
+  }
+]

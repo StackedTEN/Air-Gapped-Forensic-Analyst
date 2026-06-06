@@ -1,0 +1,47 @@
+[
+  {
+    "ts": "2026-05-02T09:50:00Z",
+    "event_id": 4624,
+    "channel": "Security",
+    "computer": "DC-01",
+    "user": "svc_backup",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "An account was successfully logged on: svc_backup (type 3) from DB-02",
+    "logon_type": "3",
+    "src_ip": "192.0.2.12",
+    "src_host": "DB-02"
+  },
+  {
+    "ts": "2026-05-02T09:51:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "DC-01",
+    "user": "",
+    "process": "svchost.exe",
+    "parent_process": "",
+    "cmdline": "C:\\Users\\Public\\svchost.exe",
+    "dst_ip": "",
+    "detail": "dropper executed",
+    "logon_type": "",
+    "src_ip": "",
+    "src_host": ""
+  },
+  {
+    "ts": "2026-05-02T09:55:00Z",
+    "event_id": 4720,
+    "channel": "Security",
+    "computer": "DC-01",
+    "user": "svc_backup2",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "A user account was created: svc_backup2",
+    "logon_type": "",
+    "src_ip": "",
+    "src_host": ""
+  }
+]

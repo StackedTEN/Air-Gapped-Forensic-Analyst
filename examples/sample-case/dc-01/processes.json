@@ -1,0 +1,12 @@
+[
+  {
+    "pid": 6120,
+    "ppid": 1,
+    "name": "svchost.exe",
+    "path": "C:\\Users\\Public\\svchost.exe",
+    "cmdline": "C:\\Users\\Public\\svchost.exe",
+    "user": "DC-01\\svc_backup",
+    "created": "2026-05-02T09:51:00Z",
+    "hash": ""
+  }
+]

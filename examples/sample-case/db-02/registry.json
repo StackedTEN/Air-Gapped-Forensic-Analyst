@@ -1,0 +1,10 @@
+[
+  {
+    "hive": "HKLM",
+    "key": "SYSTEM\\CurrentControlSet\\Services\\FakeSvc",
+    "value_name": "ImagePath",
+    "value_data": "C:\\Users\\Public\\svchost.exe",
+    "last_write": "",
+    "category": "service"
+  }
+]

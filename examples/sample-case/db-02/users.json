@@ -1,0 +1,14 @@
+[
+  {
+    "name": "dbadmin",
+    "enabled": true,
+    "last_logon": "2026-05-02T07:00:00Z",
+    "groups": ""
+  },
+  {
+    "name": "svc_backup",
+    "enabled": true,
+    "last_logon": "2026-05-02T09:30:00Z",
+    "groups": "Administrators"
+  }
+]

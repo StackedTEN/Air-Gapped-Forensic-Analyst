@@ -132,6 +132,33 @@ def rootcause(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _RE
 
 
 @app.command()
+def case(packages: str = typer.Option(..., "--packages",
+                                      help="a set of collection packages: a directory of packages, "
+                                           "a single package, or a glob"),
+         out: Path = typer.Option(None, help="optional self-contained campaign HTML report")):
+    """Correlate a SET of packages into one cross-host campaign (v2).
+
+    Verifies custody on every package (rejecting and naming any failure), then
+    correlates across hosts: lateral-movement + shared-indicator graph, a unified
+    host-tagged timeline, a campaign root cause, and an ATT&CK rollup. Fully local
+    and deterministic — the evidence never leaves the host.
+    """
+    from .correlate import correlate_case, render_case_terminal
+    campaign = correlate_case(packages)
+    if not campaign["hosts"] and not campaign["rejected"]:
+        typer.secho(f"\n  no collection packages found at: {packages}\n", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    typer.echo("\n" + render_case_terminal(campaign) + "\n")
+    if campaign["rejected"]:
+        typer.secho(f"  {len(campaign['rejected'])} package(s) rejected for custody failure "
+                    "(excluded from the campaign).", fg=typer.colors.RED)
+    if out:
+        from .report import render_case_html
+        out.write_text(render_case_html(campaign), encoding="utf-8")
+        typer.echo(f"  wrote campaign report -> {out}")
+
+
+@app.command()
 def attack(evidence: Path = _EV, events: Path = _EVENTS, registry: Path = _REG, package: Path = _PKG,
            prefetch: Path = _PF, shimcache: Path = _SC, mft: Path = _MFT, browser: Path = _BR, wmi: Path = _WMI,
            out: Path = typer.Option(None, help="optional HTML report output path")):

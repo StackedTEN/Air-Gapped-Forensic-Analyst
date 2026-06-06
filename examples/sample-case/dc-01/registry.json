@@ -1,0 +1,10 @@
+[
+  {
+    "hive": "HKLM",
+    "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "value_name": "Updater",
+    "value_data": "C:\\Users\\Public\\svchost.exe",
+    "last_write": "",
+    "category": "run"
+  }
+]

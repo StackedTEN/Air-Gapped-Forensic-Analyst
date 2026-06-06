@@ -77,6 +77,42 @@ $CollectCore = {
     104  = 'Event log was cleared';                     4104 = 'PowerShell script block logged'
   }
 
+  # Logon SOURCE for 4624/4625 (the data directed lateral-movement correlation needs;
+  # the account alone is in $Properties already, but not where it came from). Indices
+  # vary by Windows version, so PREFER named EventData from the event XML and fall
+  # back to positional $Properties only if that yields nothing. Strictly read-only
+  # and bulletproof: any failure returns empty strings, never throws.
+  function Get-LogonSource($evt) {
+    $lt = ''; $ip = ''; $ws = ''
+    try {
+      $x = [xml]$evt.ToXml()
+      foreach ($d in $x.Event.EventData.Data) {
+        switch ($d.Name) {
+          'LogonType'       { $lt = "$($d.'#text')" }
+          'IpAddress'       { $ip = "$($d.'#text')" }
+          'WorkstationName' { $ws = "$($d.'#text')" }
+        }
+      }
+    } catch { }
+    if (-not $lt -and -not $ip -and -not $ws) {   # positional fallback (4624 vs 4625 differ)
+      try {
+        $p = $evt.Properties
+        if ($evt.Id -eq 4624) {
+          if ($p.Count -ge 9)  { $lt = [string]$p[8].Value }
+          if ($p.Count -ge 12) { $ws = [string]$p[11].Value }
+          if ($p.Count -ge 19) { $ip = [string]$p[18].Value }
+        } elseif ($evt.Id -eq 4625) {
+          if ($p.Count -ge 11) { $lt = [string]$p[10].Value }
+          if ($p.Count -ge 14) { $ws = [string]$p[13].Value }
+          if ($p.Count -ge 20) { $ip = [string]$p[19].Value }
+        }
+      } catch { }
+    }
+    if (@('-', '::1', '127.0.0.1') -contains $ip) { $ip = '' }
+    if ($ws -eq '-') { $ws = '' }
+    return ,@("$lt", "$ip", "$ws")
+  }
+
   # Only hash binaries that matter forensically (suspicious/non-OS locations),
   # unless -HashAll is set. This keeps the `full` profile fast.
   function Should-Hash([string]$path) {
@@ -329,6 +365,7 @@ $CollectCore = {
           $eid = [int]$_.Id
           $props = $_.Properties               # already-parsed event data; no message rendering
           $proc = ''; $parent = ''; $cmd = ''; $acct = ''
+          $logonType = ''; $srcIp = ''; $srcHost = ''
           switch ($eid) {
             4688 {  # New Process: NewProcessName, ParentProcessName, CommandLine, SubjectUserName
               if ($props.Count -ge 6)  { $proc   = [string]$props[5].Value }
@@ -338,7 +375,10 @@ $CollectCore = {
               if ($proc)   { $proc   = ($proc   -split '\\')[-1] }
               if ($parent) { $parent = ($parent -split '\\')[-1] }
             }
-            { @(4624,4625) -contains $_ } { if ($props.Count -ge 6) { $acct = [string]$props[5].Value } }
+            { @(4624,4625) -contains $_ } {
+              if ($props.Count -ge 6) { $acct = [string]$props[5].Value }
+              $logonType, $srcIp, $srcHost = Get-LogonSource $_   # directed-correlation source
+            }
             4672 { if ($props.Count -ge 2) { $acct = [string]$props[1].Value } }
             { @(4720,4726) -contains $_ } { if ($props.Count -ge 1) { $acct = [string]$props[0].Value } }
           }
@@ -346,15 +386,21 @@ $CollectCore = {
           if ($eid -eq 4688) {
             $detail = "${label}: $proc"
             if ($cmd) { $detail += " - $cmd" }
+          } elseif (($eid -eq 4624 -or $eid -eq 4625) -and ($srcIp -or $srcHost)) {
+            $from = if ($srcHost) { $srcHost } else { $srcIp }
+            $detail = "$label (account: $acct, type $logonType) from $from"
           } elseif ($acct) {
             $detail = "$label (account: $acct)"
           } else {
             $detail = $label
           }
+          # logon_type/src_ip/src_host are v2 additions; "" for non-logon events and on
+          # older hosts where they can't be parsed — the analyzer treats them as optional.
           [void]$events.Add([ordered]@{
             ts=$_.TimeCreated.ToUniversalTime().ToString('o'); event_id=$eid; channel=$t.Log;
             computer=$env:COMPUTERNAME; user=$acct; process=$proc; parent_process=$parent;
-            cmdline=$cmd; dst_ip=''; detail=$detail })
+            cmdline=$cmd; dst_ip=''; detail=$detail;
+            logon_type="$logonType"; src_ip="$srcIp"; src_host="$srcHost" })
         }
     } catch {
       if ($_.Exception.Message -notmatch 'No events were found') {

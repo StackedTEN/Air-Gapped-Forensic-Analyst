@@ -1,0 +1,47 @@
+[
+  {
+    "ts": "2026-05-02T09:30:00Z",
+    "event_id": 4624,
+    "channel": "Security",
+    "computer": "DB-02",
+    "user": "svc_backup",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "An account was successfully logged on: svc_backup (type 3) from WEB-01",
+    "logon_type": "3",
+    "src_ip": "192.0.2.11",
+    "src_host": "WEB-01"
+  },
+  {
+    "ts": "2026-05-02T09:31:00Z",
+    "event_id": 4688,
+    "channel": "Security",
+    "computer": "DB-02",
+    "user": "",
+    "process": "svchost.exe",
+    "parent_process": "",
+    "cmdline": "C:\\Users\\Public\\svchost.exe",
+    "dst_ip": "",
+    "detail": "dropper executed",
+    "logon_type": "",
+    "src_ip": "",
+    "src_host": ""
+  },
+  {
+    "ts": "2026-05-02T09:33:00Z",
+    "event_id": 7045,
+    "channel": "Security",
+    "computer": "DB-02",
+    "user": "",
+    "process": "",
+    "parent_process": "",
+    "cmdline": "",
+    "dst_ip": "",
+    "detail": "A new service was installed: FakeSvc",
+    "logon_type": "",
+    "src_ip": "",
+    "src_host": ""
+  }
+]

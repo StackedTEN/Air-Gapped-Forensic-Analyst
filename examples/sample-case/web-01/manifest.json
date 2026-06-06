@@ -1,0 +1,71 @@
+{
+  "case_id": "IR-2026-045",
+  "operator": "T.Nelson",
+  "collector_version": "2.0.0",
+  "profile": "quick",
+  "host": {
+    "computer": "WEB-01",
+    "os": "Windows Server 2022",
+    "boot_time": "2026-05-01T22:00:00Z",
+    "current_user": "WEB-01\\svc_backup",
+    "collected_at": "2026-05-02T10:30:00Z"
+  },
+  "collected_at": "2026-05-02T10:30:00Z",
+  "files": [
+    {
+      "name": "events.json",
+      "sha256": "B6C249CC5475F41547FCB5282960A8CC63E39C6ED0121B13A94EF52F1A4DF311",
+      "count": 6
+    },
+    {
+      "name": "registry.json",
+      "sha256": "5467770E3A31735FEF192502F487456909C8A647ED1C5BA048437E99F3195951",
+      "count": 1
+    },
+    {
+      "name": "processes.json",
+      "sha256": "B7FFA4CBE2F9E6454EC1B2FEA6A6707326B09A77303FBED30274A5B73090D05E",
+      "count": 3
+    },
+    {
+      "name": "network.json",
+      "sha256": "B64C324B4BAD24568F0BD2B8AD4F61E409E8231F7AF414B64ED3150C9A6C45F5",
+      "count": 1
+    },
+    {
+      "name": "users.json",
+      "sha256": "2524D6FFEC903D00C86702B6B5F752A3BA0F14FA8940A608CA70789BE0095CE5",
+      "count": 2
+    },
+    {
+      "name": "services.json",
+      "sha256": "0D13039C476E23E9C3083E166F8D28AA2B2E959585D2A80D3264B00610A9C933",
+      "count": 1
+    },
+    {
+      "name": "programs.json",
+      "sha256": "BD5762C685E3C2AEEF3E14D283D1648B1B035F65AB685B50EFBF014C310E777E",
+      "count": 1
+    },
+    {
+      "name": "browser.json",
+      "sha256": "BDB2A73302960E73919EB9E65BCBB0AC069552C1EB50C09EDC7E2B745335D848",
+      "count": 1
+    },
+    {
+      "name": "filesystem.json",
+      "sha256": "E2D7C75AF76409A95011B85A66D127AAB3EF54B908147951D0597F23011EEB1E",
+      "count": 2
+    },
+    {
+      "name": "prefetch.json",
+      "sha256": "F9E05BE50A423C42FD26C6778B006D1B3291A439BB2D240B8399E4DC7B33F4C4",
+      "count": 1
+    },
+    {
+      "name": "shimcache.json",
+      "sha256": "E969C6E9CE28881D56E24B772D9C00B6BF2DD5EA8C653F42920F1C18F4F16904",
+      "count": 1
+    }
+  ]
+}

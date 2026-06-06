@@ -90,6 +90,23 @@
   .chip{display:inline-block;font-family:var(--mono);font-size:10.5px;color:var(--ember);
     border:1px solid rgba(224,96,58,.32);border-radius:6px;padding:2px 7px;margin:5px 5px 0 0}
 
+  /* detections */
+  .find{border:1px solid var(--line);border-radius:14px;padding:14px 17px;margin:11px 0;background:var(--panel)}
+  .find .ft{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--text);word-break:break-word}
+  .find .ft b{color:var(--ember);font-weight:600}
+  .find .fr{color:#dccfbc;font-size:12.5px;line-height:1.5;margin-top:7px}
+  .find .fp{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:9px;word-break:break-word;line-height:1.5}
+  .find .fp::before{content:"provenance ";color:var(--ember);letter-spacing:.06em}
+  .find .blind{margin-top:9px;font-size:11.5px;line-height:1.5;color:#e8d29e;
+    border-left:2px solid var(--gold);padding:3px 0 3px 10px}
+  .cmd{font-family:var(--mono);font-size:11.5px;color:#cdbfa9;background:var(--ink2);
+    border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin:9px 0;
+    white-space:pre-wrap;word-break:break-word;line-height:1.5}
+  .cmd .lbl{display:block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember);margin-bottom:5px}
+  .dnone{font-family:var(--mono);font-size:11px;color:var(--faint);padding:9px 0 4px}
+  .tagrow{margin-top:4px}
+  .tagrow .tag{margin:5px 5px 0 0;display:inline-block}
+
   .cols{display:flex;flex-wrap:wrap;gap:24px;margin-top:8px}
   .col{flex:1 1 320px}
   .card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--panel)}
@@ -190,7 +207,7 @@ const isExternal = r => { const h=remoteHost(r).trim(); return h && !PRIVATE.tes
 
 let CASE=null;
 const NAV_GROUPS=[
-  ["Analysis",[["overview","Root cause"],["timeline","Timeline"],["attack","ATT&CK matrix"],["custody","Chain of custody"],["ask","Ask the analyst"]]],
+  ["Analysis",[["overview","Root cause"],["timeline","Timeline"],["attack","ATT&CK matrix"],["custody","Chain of custody"],["detections","Detections"],["ask","Ask the analyst"]]],
   ["Artifacts",[["processes","Processes"],["network","Network"],["persistence","Persistence"],["events","Events"],
     ["accounts","Accounts"],["programs","Programs"],["prefetch","Prefetch"],["shimcache","Shimcache"],
     ["filesystem","Files ($MFT)"],["browser","Browser"],["wmi","WMI"]]]
@@ -328,6 +345,93 @@ const RENDER={
       <div class="cols"><div class="col"><div class="card"><h3>Collection record</h3>${metaRows}</div></div></div>
       <h2 class="sec">Artifact hashes (SHA-256)</h2>
       <table><thead><tr><th>Artifact file</th><th>Records</th><th>SHA-256</th></tr></thead><tbody>${rows}</tbody></table>`;
+  },
+  detections(){
+    const A=CASE.artifacts||{};
+    const chips=ts=>(ts||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join("");
+    const tags=(arr,cls)=>(arr||[]).map(t=>`<span class="tag ${cls}">${esc(t)}</span>`).join("");
+    const prov=p=>p?`<div class="fp">${esc(p)}</div>`:"";
+    const cmd=(label,text)=>text?`<div class="cmd"><span class="lbl">${esc(label)}</span>${esc(text)}</div>`:"";
+    const none=msg=>`<div class="dnone">— none detected${msg?` · ${esc(msg)}`:""}</div>`;
+    const sec=(title,count,body)=>`<h2 class="sec">${esc(title)}${count?` · ${count}`:""}</h2>${body}`;
+
+    // LOLBin abuse
+    const lol=A.lolbins||[];
+    const lolBody=lol.length?lol.map(i=>`
+      <div class="find">
+        <div class="ft"><b>${esc(i.binary)}</b>${i.label?` — ${esc(i.label)}`:""}</div>
+        ${cmd("command line",i.command)}
+        <div>${chips(i.techniques)}</div>
+        ${prov(i.provenance)}
+      </div>`).join(""):none("no living-off-the-land binary abuse");
+
+    // Suspicious commands (command intent)
+    const ci=A.command_intent||[];
+    const ciBody=ci.length?ci.map(i=>`
+      <div class="find">
+        ${cmd("command",i.command)}
+        ${i.decoded?cmd("decoded",i.decoded):""}
+        <div class="tagrow">${tags(i.intent,"susp")}${i.obfuscated?`<span class="tag ext">obfuscated</span>`:""}${tags(i.stealth_flags,"susp")}</div>
+        ${(i.obfuscation&&i.obfuscation.length)?`<div class="fr">${esc(i.obfuscation.join("; "))}</div>`:""}
+        <div>${chips(i.techniques)}</div>
+        ${prov(i.provenance)}
+      </div>`).join(""):none("no suspicious or obfuscated commands");
+
+    // Process-lineage anomalies
+    const lin=A.lineage||[];
+    const linBody=lin.length?lin.map(i=>`
+      <div class="find">
+        <div class="ft"><b>${esc(i.parent||"?")}</b> → <b>${esc(i.child||"?")}</b></div>
+        ${i.reason?`<div class="fr">${esc(i.reason)}</div>`:""}
+        ${cmd("parent cmdline",i.parent_cmdline)}
+        ${cmd("child cmdline",i.child_cmdline)}
+        <div>${chips(i.techniques)}</div>
+        ${prov(i.provenance)}
+      </div>`).join(""):none("no anomalous process lineage");
+
+    // Anti-forensics (blind-spot note reconstructed for on-host log clears, event 1102/104)
+    const af=A.antiforensics||[];
+    const afBody=af.length?af.map(i=>{
+      const cleared=i.event_id===1102||i.event_id===104;
+      const blind=cleared?`<div class="blind">${esc(i.label)} at ${esc(i.ts||"unknown time")} on ${esc(i.host)}; events before this are unavailable on-host — recover from forwarded logs / SIEM.</div>`:"";
+      return `
+      <div class="find">
+        <div class="ft">${esc(i.label||"anti-forensic activity")}</div>
+        ${cmd("command",i.command)}
+        ${blind}
+        <div>${chips(i.techniques)}</div>
+        ${prov(i.provenance)}
+      </div>`;
+    }).join(""):none("no track-covering activity");
+
+    // Timestomping (SI 0x10 vs FN 0x30)
+    const ts=A.timestomp||[];
+    const tsBody=ts.length?ts.map(i=>`
+      <div class="find">
+        <div class="ft"><b>${esc(i.path||i.name)}</b></div>
+        <div class="fr">${(i.reasons||[]).map(r=>esc(r)).join("<br>")}</div>
+        <div class="cmd"><span class="lbl">SI (0x10) vs FN (0x30)</span>SI created ${esc(i.si_created||"—")} / FN created ${esc(i.fn_created||"—")}\nSI modified ${esc(i.si_modified||"—")} / FN modified ${esc(i.fn_modified||"—")}</div>
+        <div>${chips(i.techniques)}</div>
+        ${prov(i.provenance)}
+      </div>`).join(""):none("no $STANDARD_INFORMATION/$FILE_NAME disagreement");
+
+    // Deleted-$MFT droppers callout (from the filesystem deleted subset)
+    const del=(A.filesystem||[]).filter(f=>f.deleted);
+    const delCallout=del.length?`
+      <div class="callout" style="margin-bottom:18px">
+        <span class="lab">Deleted $MFT droppers</span>
+        <span class="pill medium">${del.length} record${del.length===1?"":"s"}</span>
+        <p style="font-size:14px;margin-top:10px">Files removed but still recoverable from $MFT records (InUse=false):</p>
+        ${del.map(f=>`<div class="ioc"><span class="k">file</span><span class="v"><span class="hash">${esc(f.path||f.name)}</span>${f.created?` · created ${esc(f.created)}`:""}</span></div>`).join("")}
+      </div>`:"";
+
+    return `<p class="vhead">Detections — detector findings, grounded in evidence</p>
+      ${delCallout}
+      ${sec("LOLBin abuse",lol.length,lolBody)}
+      ${sec("Suspicious commands",ci.length,ciBody)}
+      ${sec("Process-lineage anomalies",lin.length,linBody)}
+      ${sec("Anti-forensics",af.length,afBody)}
+      ${sec("Timestomping",ts.length,tsBody)}`;
   },
   ask(){
     const sugg=["How did the attacker establish persistence?","Is there command-and-control activity?",
